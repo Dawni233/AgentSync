@@ -190,11 +190,14 @@ function openAddAgentDialog() {
   showAddAgent.value = true
 }
 
+const adding = ref(false)
+
 async function confirmAddAgent() {
   if (!newAgent.value.id || !newAgent.value.displayName || !newAgent.value.configDir) {
     message.warning('请填写 ID、显示名、配置目录')
     return
   }
+  adding.value = true
   newAgent.value.syncFiles = newAgentSyncFiles.value
     .split('\n')
     .map((s) => s.trim())
@@ -213,6 +216,8 @@ async function confirmAddAgent() {
     await loadAgents()
   } catch (e) {
     message.error(`添加失败: ${e}`)
+  } finally {
+    adding.value = false
   }
 }
 
@@ -358,7 +363,9 @@ onMounted(async () => {
       <template #footer>
         <n-space justify="end">
           <n-button @click="showAddAgent = false">取消</n-button>
-          <n-button type="primary" @click="confirmAddAgent">添加</n-button>
+          <n-button type="primary" :loading="adding" :disabled="adding" @click="confirmAddAgent">
+            {{ adding ? '添加中...' : '添加' }}
+          </n-button>
         </n-space>
       </template>
     </n-modal>
