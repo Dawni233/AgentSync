@@ -224,21 +224,84 @@ fn list_tracked_files(
 }
 
 /// 添加 agent
+///
+/// 同步执行：写 SQLite + 更新 registry.json + 创建 _current/ + 首次导入 + commit/push
 #[tauri::command]
 fn add_agent(
     state: tauri::State<'_, AppState>,
     config: AgentConfig,
 ) -> Result<(), String> {
-    state.db.upsert_agent(&config).map_err(|e| e.to_string())
+    // 1. 写 SQLite
+    state.db.upsert_agent(&config).map_err(|e| e.to_string())?;
+
+    // 2. 更新 registry.json
+    let registry_path = state.repo_path.join("registry.json");
+    let mut registry = registry::Registry::load(&registry_path)
+        .unwrap_or_else(|_| registry::Registry::new_empty());
+    registry.upsert_agent(config.clone());
+    registry.save(&registry_path).map_err(|e| e.to_string())?;
+
+    // 3. 创建 _current/ 并首次导入本地配置
+    let current_dir = state.repo_path.join(&config.id).join("_current");
+    std::fs::create_dir_all(&current_dir).map_err(|e| e.to_string())?;
+
+    let local_config_dir = file_mapper::expand_tilde(&config.config_dir)
+        .map_err(|e| e.to_string())?;
+    let local_config_path = std::path::PathBuf::from(&local_config_dir);
+
+    if local_config_path.exists() {
+        // 本地有配置 -> 导入到 _current/
+        file_mapper::copy_local_to_current(
+            &local_config_path,
+            &current_dir,
+            &config.sync_files,
+            &config.exclude_files,
+        )
+        .map_err(|e| e.to_string())?;
+    }
+
+    // 4. commit + push
+    let settings = state.db.get_settings().map_err(|e| e.to_string())?;
+    let repo = git2::Repository::open(&state.repo_path).map_err(|e| e.to_string())?;
+    git_sync::commit(&repo, &format!("add agent: {}", config.id))
+        .map_err(|e| e.to_string())?;
+    let _ = git_sync::push(&repo, &settings.pat_token);
+
+    Ok(())
 }
 
 /// 删除 agent
+///
+/// 同步执行：删 SQLite + 更新 registry.json + 删仓库目录 + commit/push
 #[tauri::command]
 fn remove_agent(state: tauri::State<'_, AppState>, agent_id: String) -> Result<(), String> {
+    // 1. 删 SQLite
     state
         .db
         .remove_agent(&agent_id)
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+
+    // 2. 更新 registry.json
+    let registry_path = state.repo_path.join("registry.json");
+    if let Ok(mut registry) = registry::Registry::load(&registry_path) {
+        registry.remove_agent(&agent_id);
+        let _ = registry.save(&registry_path);
+    }
+
+    // 3. 删仓库目录
+    let agent_dir = state.repo_path.join(&agent_id);
+    if agent_dir.exists() {
+        std::fs::remove_dir_all(&agent_dir).map_err(|e| e.to_string())?;
+    }
+
+    // 4. commit + push
+    let settings = state.db.get_settings().map_err(|e| e.to_string())?;
+    if let Ok(repo) = git2::Repository::open(&state.repo_path) {
+        let _ = git_sync::commit(&repo, &format!("remove agent: {}", agent_id));
+        let _ = git_sync::push(&repo, &settings.pat_token);
+    }
+
+    Ok(())
 }
 
 /// 同步单个 agent
