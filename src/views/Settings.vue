@@ -136,11 +136,11 @@ const presetTemplates = [
   { id: 'workbuddy', displayName: 'WorkBuddy', configDir: '~/.workbuddy', syncFiles: ['SOUL.md', 'IDENTITY.md', 'USER.md', 'memory/**'], excludeFiles: ['memory/cache/', 'memory/tmp/', '*.lock', '*.tmp', '*.log', '*.bak'] },
   { id: 'claude-code', displayName: 'Claude Code', configDir: '~/.claude', syncFiles: ['CLAUDE.md', 'settings.json'], excludeFiles: ['*.log'] },
   { id: 'cursor', displayName: 'Cursor', configDir: '~/.cursor', syncFiles: ['rules/**'], excludeFiles: [] },
-  { id: 'codex', displayName: 'Codex', configDir: '~/.codex', syncFiles: ['config.toml', 'skills/**'], excludeFiles: ['*.sqlite', '*.sqlite-shm', '*.sqlite-wal', 'logs_*.sqlite', 'installation_id', 'tmp/', '.tmp/', 'sqlite/', 'vendor_imports/'] },
-  { id: 'zcode', displayName: 'ZCode', configDir: '~/.zcode', syncFiles: ['AGENTS.md', 'agents/**', 'skills/**'], excludeFiles: ['cli/', 'plugin-workspace/', 'v2/'] },
-  { id: 'qoder', displayName: 'Qoder', configDir: '~/.qoderworkcn', syncFiles: ['commands/**', 'skills/**'], excludeFiles: ['bin/', 'cache/', 'logs/', 'machine-id'] },
+  { id: 'codex', displayName: 'Codex', configDir: '~/.codex', syncFiles: ['config.toml'], excludeFiles: ['*.sqlite', '*.sqlite-shm', '*.sqlite-wal', 'logs_*.sqlite', 'installation_id', 'tmp/', '.tmp/', 'sqlite/', 'vendor_imports/', 'skills/'] },
+  { id: 'zcode', displayName: 'ZCode', configDir: '~/.zcode', syncFiles: ['AGENTS.md'], excludeFiles: ['cli/', 'plugin-workspace/', 'v2/', 'agents/', 'skills/'] },
+  { id: 'qoder', displayName: 'Qoder', configDir: '~/.qoderworkcn', syncFiles: ['commands/**'], excludeFiles: ['bin/', 'cache/', 'logs/', 'machine-id', 'skills/'] },
   { id: 'openclaw', displayName: 'OpenClaw', configDir: '~/.openclaw', syncFiles: ['identity/**'], excludeFiles: ['exec-approvals.json', '*.sock'] },
-  { id: 'qwenpaw', displayName: 'QwenPaw', configDir: '~/.qwenpaw', syncFiles: ['HEARTBEAT.md', 'config.json', 'settings.json', 'skill_pool/**'], excludeFiles: ['qwenpaw.log', 'token_usage.json', 'workspaces/'] },
+  { id: 'qwenpaw', displayName: 'QwenPaw', configDir: '~/.qwenpaw', syncFiles: ['HEARTBEAT.md', 'config.json', 'settings.json'], excludeFiles: ['qwenpaw.log', 'token_usage.json', 'workspaces/', 'skill_pool/'] },
   { id: 'custom', displayName: '自定义', configDir: '', syncFiles: [], excludeFiles: [] }
 ]
 const selectedTemplate = ref('custom')
