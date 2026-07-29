@@ -1,6 +1,9 @@
 # 依赖
 node_modules/
 
+# 本地规则文件（不上传）
+AGENTS.md
+
 # 构建产物
 dist/
 dist-ssr/
