@@ -77,9 +77,14 @@ function goToStep2() {
 const presetAgents = [
   { id: 'workbuddy', label: 'WorkBuddy', desc: '~/.workbuddy', color: '#42b883' },
   { id: 'claude-code', label: 'Claude Code', desc: '~/.claude', color: '#d97706' },
-  { id: 'cursor', label: 'Cursor', desc: '~/.cursor', color: '#6366f1' }
+  { id: 'cursor', label: 'Cursor', desc: '~/.cursor', color: '#6366f1' },
+  { id: 'codex', label: 'Codex', desc: '~/.codex', color: '#10b981' },
+  { id: 'zcode', label: 'ZCode', desc: '~/.zcode', color: '#8b5cf6' },
+  { id: 'qoder', label: 'Qoder', desc: '~/.qoderworkcn', color: '#f59e0b' },
+  { id: 'openclaw', label: 'OpenClaw', desc: '~/.openclaw', color: '#ef4444' },
+  { id: 'qwenpaw', label: 'QwenPaw', desc: '~/.qwenpaw', color: '#3b82f6' }
 ]
-const selectedPresets = ref<string[]>(['workbuddy', 'claude-code'])
+const selectedPresets = ref<string[]>(['workbuddy', 'claude-code', 'cursor', 'codex', 'zcode', 'qoder', 'openclaw', 'qwenpaw'])
 
 // 导入策略：当本地和远程都有配置时如何处理
 const importStrategy = ref<'auto' | 'preferLocal' | 'preferRemote'>('auto')

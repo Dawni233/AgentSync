@@ -220,6 +220,73 @@ fn default_presets() -> Vec<AgentConfig> {
             exclude_files: vec![],
             accent_color: Some("#6366f1".into()),
         },
+        AgentConfig {
+            id: "codex".into(),
+            display_name: "Codex".into(),
+            config_dir: "~/.codex".into(),
+            sync_files: vec!["config.toml".into(), "skills/**".into()],
+            exclude_files: vec![
+                "*.sqlite".into(),
+                "*.sqlite-shm".into(),
+                "*.sqlite-wal".into(),
+                "logs_*.sqlite".into(),
+                "installation_id".into(),
+                "tmp/".into(),
+                ".tmp/".into(),
+                "sqlite/".into(),
+                "vendor_imports/".into(),
+            ],
+            accent_color: Some("#10b981".into()),
+        },
+        AgentConfig {
+            id: "zcode".into(),
+            display_name: "ZCode".into(),
+            config_dir: "~/.zcode".into(),
+            sync_files: vec!["AGENTS.md".into(), "agents/**".into(), "skills/**".into()],
+            exclude_files: vec!["cli/".into(), "plugin-workspace/".into(), "v2/".into()],
+            accent_color: Some("#8b5cf6".into()),
+        },
+        AgentConfig {
+            id: "qoder".into(),
+            display_name: "Qoder".into(),
+            config_dir: "~/.qoderworkcn".into(),
+            sync_files: vec!["commands/**".into(), "skills/**".into()],
+            exclude_files: vec![
+                "bin/".into(),
+                "cache/".into(),
+                "logs/".into(),
+                "machine-id".into(),
+            ],
+            accent_color: Some("#f59e0b".into()),
+        },
+        AgentConfig {
+            id: "openclaw".into(),
+            display_name: "OpenClaw".into(),
+            config_dir: "~/.openclaw".into(),
+            sync_files: vec!["identity/**".into()],
+            exclude_files: vec![
+                "exec-approvals.json".into(),
+                "*.sock".into(),
+            ],
+            accent_color: Some("#ef4444".into()),
+        },
+        AgentConfig {
+            id: "qwenpaw".into(),
+            display_name: "QwenPaw".into(),
+            config_dir: "~/.qwenpaw".into(),
+            sync_files: vec![
+                "HEARTBEAT.md".into(),
+                "config.json".into(),
+                "settings.json".into(),
+                "skill_pool/**".into(),
+            ],
+            exclude_files: vec![
+                "qwenpaw.log".into(),
+                "token_usage.json".into(),
+                "workspaces/".into(),
+            ],
+            accent_color: Some("#3b82f6".into()),
+        },
     ]
 }
 
