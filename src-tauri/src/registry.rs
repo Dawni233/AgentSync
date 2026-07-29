@@ -201,6 +201,7 @@ fn default_presets() -> Vec<AgentConfig> {
                 "*.lock".into(),
                 "*.tmp".into(),
                 "*.log".into(),
+                "*.bak".into(),
             ],
             accent_color: Some("#42b883".into()),
         },
