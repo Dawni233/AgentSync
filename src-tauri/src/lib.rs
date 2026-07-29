@@ -649,6 +649,7 @@ pub fn run() {
             MacosLauncher::LaunchAgent,
             Some(vec!["--minimized"]),
         ))
+        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             if cfg!(debug_assertions) {
                 app.handle().plugin(

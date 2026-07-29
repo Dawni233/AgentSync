@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { ref, onMounted, h } from 'vue'
+import { ref, onMounted, h, watch } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
+import { open as openDialog } from '@tauri-apps/plugin-dialog'
 import {
   NCard,
   NForm,
@@ -130,12 +131,63 @@ const agentColumns: DataTableColumns<Agent> = [
   }
 ]
 
+// 预置模板（与后端 registry.rs default_presets 一致）
+const presetTemplates = [
+  { id: 'workbuddy', displayName: 'WorkBuddy', configDir: '~/.workbuddy', syncFiles: ['SOUL.md', 'IDENTITY.md', 'USER.md', 'memory/**'], excludeFiles: ['memory/cache/', 'memory/tmp/', '*.lock', '*.tmp', '*.log', '*.bak'] },
+  { id: 'claude-code', displayName: 'Claude Code', configDir: '~/.claude', syncFiles: ['CLAUDE.md', 'settings.json'], excludeFiles: ['*.log'] },
+  { id: 'cursor', displayName: 'Cursor', configDir: '~/.cursor', syncFiles: ['rules/**'], excludeFiles: [] },
+  { id: 'codex', displayName: 'Codex', configDir: '~/.codex', syncFiles: ['config.toml', 'skills/**'], excludeFiles: ['*.sqlite', '*.sqlite-shm', '*.sqlite-wal', 'logs_*.sqlite', 'installation_id', 'tmp/', '.tmp/', 'sqlite/', 'vendor_imports/'] },
+  { id: 'zcode', displayName: 'ZCode', configDir: '~/.zcode', syncFiles: ['AGENTS.md', 'agents/**', 'skills/**'], excludeFiles: ['cli/', 'plugin-workspace/', 'v2/'] },
+  { id: 'qoder', displayName: 'Qoder', configDir: '~/.qoderworkcn', syncFiles: ['commands/**', 'skills/**'], excludeFiles: ['bin/', 'cache/', 'logs/', 'machine-id'] },
+  { id: 'openclaw', displayName: 'OpenClaw', configDir: '~/.openclaw', syncFiles: ['identity/**'], excludeFiles: ['exec-approvals.json', '*.sock'] },
+  { id: 'qwenpaw', displayName: 'QwenPaw', configDir: '~/.qwenpaw', syncFiles: ['HEARTBEAT.md', 'config.json', 'settings.json', 'skill_pool/**'], excludeFiles: ['qwenpaw.log', 'token_usage.json', 'workspaces/'] },
+  { id: 'custom', displayName: '自定义', configDir: '', syncFiles: [], excludeFiles: [] }
+]
+const selectedTemplate = ref('custom')
+
+const templateOptions = presetTemplates.map((t) => ({
+  label: t.displayName + (t.id === 'custom' ? '' : ` (${t.configDir})`),
+  value: t.id
+}))
+
+// 选择模板时自动填充
+watch(selectedTemplate, (val) => {
+  const tpl = presetTemplates.find((t) => t.id === val)
+  if (!tpl || tpl.id === 'custom') return
+  newAgent.value.id = tpl.id
+  newAgent.value.displayName = tpl.displayName
+  newAgent.value.configDir = tpl.configDir
+  newAgentSyncFiles.value = tpl.syncFiles.join('\n')
+  newAgentExcludeFiles.value = tpl.excludeFiles.join('\n')
+})
+
+// 文件夹选择器
+async function browseConfigDir() {
+  const selected = await openDialog({
+    title: '选择 AI 助手配置目录',
+    directory: true,
+    multiple: false
+  })
+  if (selected && !Array.isArray(selected)) {
+    newAgent.value.configDir = selected
+  }
+}
+
 async function loadAgents() {
   try {
     agentList.value = await invoke<Agent[]>('get_agents')
   } catch (e) {
     console.warn('加载 agents 失败:', e)
   }
+}
+
+function openAddAgentDialog() {
+  // 重置表单
+  newAgent.value = { id: '', displayName: '', configDir: '', syncFiles: [], excludeFiles: [] }
+  newAgentSyncFiles.value = ''
+  newAgentExcludeFiles.value = ''
+  selectedTemplate.value = 'custom'
+  showAddAgent.value = true
 }
 
 async function confirmAddAgent() {
@@ -251,7 +303,7 @@ onMounted(async () => {
         size="small"
       />
       <div class="settings__add-agent">
-        <n-button size="small" @click="showAddAgent = true">添加 Agent</n-button>
+        <n-button size="small" @click="openAddAgentDialog">添加 Agent</n-button>
       </div>
     </n-card>
 
@@ -260,9 +312,16 @@ onMounted(async () => {
       v-model:show="showAddAgent"
       preset="card"
       title="添加 Agent"
-      style="width: 500px"
+      style="width: 560px"
     >
       <n-form label-placement="left" :label-width="100">
+        <n-form-item label="预置模板">
+          <n-select
+            v-model:value="selectedTemplate"
+            :options="templateOptions"
+            placeholder="选择模板自动填充，或选自定义"
+          />
+        </n-form-item>
         <n-form-item label="ID">
           <n-input v-model:value="newAgent.id" placeholder="如 my-agent（小写）" />
         </n-form-item>
@@ -270,14 +329,21 @@ onMounted(async () => {
           <n-input v-model:value="newAgent.displayName" placeholder="如 My Agent" />
         </n-form-item>
         <n-form-item label="配置目录">
-          <n-input v-model:value="newAgent.configDir" placeholder="如 ~/.myagent" />
+          <n-space align="center" :wrap="false" style="width: 100%">
+            <n-input
+              v-model:value="newAgent.configDir"
+              placeholder="如 ~/.myagent"
+              style="flex: 1"
+            />
+            <n-button @click="browseConfigDir">浏览</n-button>
+          </n-space>
         </n-form-item>
         <n-form-item label="同步文件">
           <n-input
             v-model:value="newAgentSyncFiles"
             type="textarea"
             placeholder="每行一个 glob 模式，如 SOUL.md"
-            :rows="3"
+            :rows="4"
           />
         </n-form-item>
         <n-form-item label="排除文件">
@@ -285,7 +351,7 @@ onMounted(async () => {
             v-model:value="newAgentExcludeFiles"
             type="textarea"
             placeholder="每行一个 glob 模式，如 *.log（可留空）"
-            :rows="2"
+            :rows="3"
           />
         </n-form-item>
       </n-form>
