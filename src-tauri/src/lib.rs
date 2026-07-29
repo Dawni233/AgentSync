@@ -225,13 +225,14 @@ fn list_tracked_files(
 
 /// 添加 agent
 ///
-/// 同步执行：写 SQLite + 更新 registry.json + 创建 _current/ + 首次导入 + commit/push
+/// async 执行：写 SQLite + 更新 registry.json + 创建 _current/ + 首次导入 + commit/push
+/// git 操作放后台线程，避免阻塞 UI
 #[tauri::command]
-fn add_agent(
+async fn add_agent(
     state: tauri::State<'_, AppState>,
     config: AgentConfig,
 ) -> Result<(), String> {
-    // 1. 写 SQLite
+    // 1. 写 SQLite（快速操作，直接执行）
     state.db.upsert_agent(&config).map_err(|e| e.to_string())?;
 
     // 2. 更新 registry.json
@@ -241,40 +242,48 @@ fn add_agent(
     registry.upsert_agent(config.clone());
     registry.save(&registry_path).map_err(|e| e.to_string())?;
 
-    // 3. 创建 _current/ 并首次导入本地配置
-    let current_dir = state.repo_path.join(&config.id).join("_current");
-    std::fs::create_dir_all(&current_dir).map_err(|e| e.to_string())?;
+    // 3. 创建 _current/ 并首次导入本地配置（文件操作 + git 操作放后台线程）
+    let repo_path = state.repo_path.clone();
+    let config_dir = config.config_dir.clone();
+    let sync_files = config.sync_files.clone();
+    let exclude_files = config.exclude_files.clone();
+    let agent_id = config.id.clone();
+    let pat = state.db.get_settings().map_err(|e| e.to_string())?.pat_token;
 
-    let local_config_dir = file_mapper::expand_tilde(&config.config_dir)
-        .map_err(|e| e.to_string())?;
-    let local_config_path = std::path::PathBuf::from(&local_config_dir);
+    tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
+        let current_dir = repo_path.join(&agent_id).join("_current");
+        std::fs::create_dir_all(&current_dir).map_err(|e| e.to_string())?;
 
-    if local_config_path.exists() {
-        // 本地有配置 -> 导入到 _current/
-        file_mapper::copy_local_to_current(
-            &local_config_path,
-            &current_dir,
-            &config.sync_files,
-            &config.exclude_files,
-        )
-        .map_err(|e| e.to_string())?;
-    }
+        let local_config_dir = file_mapper::expand_tilde(&config_dir).map_err(|e| e.to_string())?;
+        let local_config_path = std::path::PathBuf::from(&local_config_dir);
 
-    // 4. commit + push
-    let settings = state.db.get_settings().map_err(|e| e.to_string())?;
-    let repo = git2::Repository::open(&state.repo_path).map_err(|e| e.to_string())?;
-    git_sync::commit(&repo, &format!("add agent: {}", config.id))
-        .map_err(|e| e.to_string())?;
-    let _ = git_sync::push(&repo, &settings.pat_token);
+        if local_config_path.exists() {
+            file_mapper::copy_local_to_current(
+                &local_config_path,
+                &current_dir,
+                &sync_files,
+                &exclude_files,
+            )
+            .map_err(|e| e.to_string())?;
+        }
 
-    Ok(())
+        // commit + push
+        let repo = git2::Repository::open(&repo_path).map_err(|e| e.to_string())?;
+        git_sync::commit(&repo, &format!("add agent: {}", agent_id))
+            .map_err(|e| e.to_string())?;
+        let _ = git_sync::push(&repo, &pat);
+
+        Ok(())
+    })
+    .await
+    .map_err(|e| format!("后台任务失败: {}", e))?
 }
 
 /// 删除 agent
 ///
-/// 同步执行：删 SQLite + 更新 registry.json + 删仓库目录 + commit/push
+/// async 执行：删 SQLite + 更新 registry.json + 删仓库目录 + commit/push
 #[tauri::command]
-fn remove_agent(state: tauri::State<'_, AppState>, agent_id: String) -> Result<(), String> {
+async fn remove_agent(state: tauri::State<'_, AppState>, agent_id: String) -> Result<(), String> {
     // 1. 删 SQLite
     state
         .db
@@ -288,25 +297,31 @@ fn remove_agent(state: tauri::State<'_, AppState>, agent_id: String) -> Result<(
         let _ = registry.save(&registry_path);
     }
 
-    // 3. 删仓库目录
-    let agent_dir = state.repo_path.join(&agent_id);
-    if agent_dir.exists() {
-        std::fs::remove_dir_all(&agent_dir).map_err(|e| e.to_string())?;
-    }
+    // 3. 删仓库目录 + commit/push（后台线程）
+    let repo_path = state.repo_path.clone();
+    let pat = state.db.get_settings().map_err(|e| e.to_string())?.pat_token;
+    let id = agent_id.clone();
 
-    // 4. commit + push
-    let settings = state.db.get_settings().map_err(|e| e.to_string())?;
-    if let Ok(repo) = git2::Repository::open(&state.repo_path) {
-        let _ = git_sync::commit(&repo, &format!("remove agent: {}", agent_id));
-        let _ = git_sync::push(&repo, &settings.pat_token);
-    }
-
-    Ok(())
+    tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
+        let agent_dir = repo_path.join(&id);
+        if agent_dir.exists() {
+            std::fs::remove_dir_all(&agent_dir).map_err(|e| e.to_string())?;
+        }
+        if let Ok(repo) = git2::Repository::open(&repo_path) {
+            let _ = git_sync::commit(&repo, &format!("remove agent: {}", id));
+            let _ = git_sync::push(&repo, &pat);
+        }
+        Ok(())
+    })
+    .await
+    .map_err(|e| format!("后台任务失败: {}", e))?
 }
 
 /// 同步单个 agent
+///
+/// async 执行：git 操作放后台线程，避免阻塞 UI
 #[tauri::command]
-fn sync_agent(
+async fn sync_agent(
     app: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
     agent_id: String,
@@ -320,82 +335,76 @@ fn sync_agent(
         .ok_or_else(|| format!("agent '{}' 未注册", agent_id))?;
 
     let settings = state.db.get_settings().map_err(|e| e.to_string())?;
-
-    let local_config_dir = file_mapper::expand_tilde(&config.config_dir)
-        .map_err(|e| e.to_string())?;
-    let local_config_dir = PathBuf::from(&local_config_dir);
-
-    let engine = SyncEngine::new(
-        state.repo_path.clone(),
-        state.app_data_dir.clone(),
-        settings.pat_token,
+    let local_config_dir = PathBuf::from(
+        file_mapper::expand_tilde(&config.config_dir).map_err(|e| e.to_string())?,
     );
 
     let _ = app.emit("sync:started", serde_json::json!({ "agentId": &agent_id }));
 
-    match engine.sync_agent(
-        &agent_id,
-        &local_config_dir,
-        &config.sync_files,
-        &config.exclude_files,
-    ) {
-        Ok((result, ctx)) => {
-            if result.status == types::SyncResultStatus::Conflict {
-                // 保存上下文，等前端 resolve
-                if let Some(ctx) = ctx {
-                    *state
-                        .pending_sync
-                        .lock()
-                        .map_err(|e| e.to_string())? = Some((agent_id.clone(), ctx));
-                    let _ = app.emit(
-                        "conflict:detected",
-                        serde_json::json!({
-                            "agentId": &agent_id,
-                            "conflictType": if result.error_message.as_deref()
-                                .map(|s| s.contains("L1"))
-                                .unwrap_or(false) { "L1" } else { "L2" },
-                            "conflictFiles": result.conflict_files,
-                        }),
-                    );
-                }
-            } else {
-                let _ = app.emit(
-                    "sync:completed",
-                    serde_json::json!({ "result": &result }),
-                );
-                // 同步成功后更新 SQLite 的 last_sync_at
-                if result.status == types::SyncResultStatus::Success {
-                    let now = chrono::Utc::now().timestamp_millis();
-                    let _ = state.db.update_sync_status(&agent_id, &SyncStatus::Idle, Some(now));
-                }
-            }
-            sync_engine::cleanup_tmp(&state.app_data_dir, &agent_id)
-                .map_err(|e| e.to_string())?;
-            Ok(result)
-        }
-        Err(e) => {
+    // git 操作放后台线程
+    let repo_path = state.repo_path.clone();
+    let app_data_dir = state.app_data_dir.clone();
+    let pat = settings.pat_token;
+    let sync_files = config.sync_files.clone();
+    let exclude_files = config.exclude_files.clone();
+    let id = agent_id.clone();
+
+    let result = tauri::async_runtime::spawn_blocking(move || -> Result<(SyncResult, Option<SyncContext>), String> {
+        let engine = SyncEngine::new(repo_path, app_data_dir, pat);
+        engine
+            .sync_agent(&id, &local_config_dir, &sync_files, &exclude_files)
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| format!("后台任务失败: {}", e))??;
+
+    let (sync_result, ctx) = result;
+
+    if sync_result.status == types::SyncResultStatus::Conflict {
+        if let Some(ctx) = ctx {
+            *state
+                .pending_sync
+                .lock()
+                .map_err(|e| e.to_string())? = Some((agent_id.clone(), ctx));
             let _ = app.emit(
-                "sync:error",
-                serde_json::json!({ "agentId": &agent_id, "errorMessage": e.to_string() }),
+                "conflict:detected",
+                serde_json::json!({
+                    "agentId": &agent_id,
+                    "conflictType": if sync_result.error_message.as_deref()
+                        .map(|s| s.contains("L1"))
+                        .unwrap_or(false) { "L1" } else { "L2" },
+                    "conflictFiles": sync_result.conflict_files,
+                }),
             );
-            Err(e.to_string())
+        }
+    } else {
+        let _ = app.emit(
+            "sync:completed",
+            serde_json::json!({ "result": &sync_result }),
+        );
+        if sync_result.status == types::SyncResultStatus::Success {
+            let now = chrono::Utc::now().timestamp_millis();
+            let _ = state.db.update_sync_status(&agent_id, &SyncStatus::Idle, Some(now));
         }
     }
+    sync_engine::cleanup_tmp(&state.app_data_dir, &agent_id)
+        .map_err(|e| e.to_string())?;
+    Ok(sync_result)
 }
 
 /// 同步所有 agent
+///
+/// async 执行：每个 agent 的 git 操作放后台线程
 #[tauri::command]
-fn sync_all(
+async fn sync_all(
     app: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
 ) -> Result<Vec<SyncResult>, String> {
     let configs = state.db.list_agents().map_err(|e| e.to_string())?;
     let settings = state.db.get_settings().map_err(|e| e.to_string())?;
-    let engine = SyncEngine::new(
-        state.repo_path.clone(),
-        state.app_data_dir.clone(),
-        settings.pat_token,
-    );
+    let repo_path = state.repo_path.clone();
+    let app_data_dir = state.app_data_dir.clone();
+    let pat = settings.pat_token;
 
     let mut results = Vec::new();
     for config in configs {
@@ -406,13 +415,25 @@ fn sync_all(
             "sync:started",
             serde_json::json!({ "agentId": &config.id }),
         );
-        match engine.sync_agent(
-            &config.id,
-            &local_config_dir,
-            &config.sync_files,
-            &config.exclude_files,
-        ) {
-            Ok((result, ctx)) => {
+
+        let repo_path = repo_path.clone();
+        let app_data_dir = app_data_dir.clone();
+        let pat = pat.clone();
+        let sync_files = config.sync_files.clone();
+        let exclude_files = config.exclude_files.clone();
+        let id = config.id.clone();
+
+        let sync_outcome = tauri::async_runtime::spawn_blocking(move || -> Result<(SyncResult, Option<SyncContext>), String> {
+            let engine = SyncEngine::new(repo_path, app_data_dir, pat);
+            engine
+                .sync_agent(&id, &local_config_dir, &sync_files, &exclude_files)
+                .map_err(|e| e.to_string())
+        })
+        .await
+        .map_err(|e| format!("后台任务失败: {}", e));
+
+        match sync_outcome {
+            Ok(Ok((result, ctx))) => {
                 if result.status == types::SyncResultStatus::Conflict {
                     if let Some(ctx) = ctx {
                         *state
@@ -440,10 +461,10 @@ fn sync_all(
                     .map_err(|e| e.to_string())?;
                 results.push(result);
             }
-            Err(e) => {
+            Ok(Err(e)) => {
                 let _ = app.emit(
                     "sync:error",
-                    serde_json::json!({ "agentId": &config.id, "errorMessage": e.to_string() }),
+                    serde_json::json!({ "agentId": &config.id, "errorMessage": &e }),
                 );
                 results.push(SyncResult {
                     agent_id: config.id,
@@ -451,7 +472,22 @@ fn sync_all(
                     pulled_files: vec![],
                     pushed_files: vec![],
                     conflict_files: vec![],
-                    error_message: Some(e.to_string()),
+                    error_message: Some(e),
+                    duration_ms: 0,
+                });
+            }
+            Err(e) => {
+                let _ = app.emit(
+                    "sync:error",
+                    serde_json::json!({ "agentId": &config.id, "errorMessage": &e }),
+                );
+                results.push(SyncResult {
+                    agent_id: config.id,
+                    status: types::SyncResultStatus::Error,
+                    pulled_files: vec![],
+                    pushed_files: vec![],
+                    conflict_files: vec![],
+                    error_message: Some(e),
                     duration_ms: 0,
                 });
             }
