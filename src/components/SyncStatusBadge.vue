@@ -5,44 +5,22 @@ defineProps<{
   status: SyncStatus
 }>()
 
-const statusText: Record<SyncStatus, string> = {
-  idle: '已同步',
-  syncing: '同步中',
-  pending: '待同步',
-  conflict: '冲突',
-  error: '错误'
-}
-
-const statusColor: Record<SyncStatus, string> = {
-  idle: '#22c55e',
-  syncing: '#3b82f6',
-  pending: '#f59e0b',
-  conflict: '#f59e0b',
-  error: '#ef4444'
+const map: Record<SyncStatus, { label: string; color: string; pulse: boolean }> = {
+  idle: { label: '已同步', color: 'var(--success)', pulse: false },
+  syncing: { label: '同步中', color: 'var(--brand)', pulse: true },
+  pending: { label: '待同步', color: 'var(--warning)', pulse: false },
+  conflict: { label: '冲突', color: 'var(--warning)', pulse: false },
+  error: { label: '错误', color: 'var(--error)', pulse: false }
 }
 </script>
 
 <template>
-  <span class="sync-badge">
-    <span class="sync-badge__dot" :style="{ background: statusColor[status] }" />
-    <span class="sync-badge__text">{{ statusText[status] }}</span>
+  <span class="sbadge">
+    <span
+      class="sbadge__d"
+      :style="{ background: map[status].color }"
+      :class="{ 'is-pulsing': map[status].pulse }"
+    />
+    <span>{{ map[status].label }}</span>
   </span>
 </template>
-
-<style scoped>
-.sync-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12px;
-}
-.sync-badge__dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  display: inline-block;
-}
-.sync-badge__text {
-  color: var(--n-text-color-2, #666);
-}
-</style>

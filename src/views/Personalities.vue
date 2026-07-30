@@ -1,26 +1,12 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
-import {
-  NEmpty,
-  NButton,
-  NSpace,
-  NTag,
-  NInput,
-  NModal,
-  NList,
-  NListItem,
-  NThing,
-  NCheckbox,
-  NAlert,
-  NSpin,
-  useMessage
-} from 'naive-ui'
+import { ref, computed, onMounted } from 'vue'
 import { useAgentsStore } from '@/stores/agents'
 import { usePersonalities, type PersonaDiffPreview } from '@/composables/usePersonalities'
+import { showToast } from '@/composables/useToast'
 import type { Persona } from '@/types'
 
-const message = useMessage()
 const agentsStore = useAgentsStore()
+const toast = showToast
 const {
   listPersonalities,
   savePersonality,
@@ -31,132 +17,351 @@ const {
   importPersonalities
 } = usePersonalities()
 
-const personalities = ref<Persona[]>([])
-const selectedAgentId = ref<string>('')
-const selectedPersona = ref<Persona | null>(null)
-const loading = ref(false)
+// 按 agentId 分组的 personas
+const grouped = ref<Record<string, Persona[]>>({})
+const collapsedAgents = ref<Set<string>>(new Set())
 
-// 保存人格弹窗
+const selected = ref<{ agentId: string; name: string } | null>(null)
+const selectedPersona = ref<Persona | null>(null)
+const selFile = ref<string | null>(null)
+const selMode = ref<'render' | 'source' | 'diff'>('render')
+
+const collapsedFiles = ref<Set<string>>(new Set())
+
+const totalPersonas = computed(() =>
+  Object.values(grouped.value).reduce((s, arr) => s + arr.length, 0)
+)
+
+// ---------- 树 / 预览辅助 ----------
+interface TreeNode {
+  name: string
+  path: string
+  children: TreeNode[]
+  isDir: boolean
+}
+
+function esc(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+}
+
+function fileGlyph(file: string): string {
+  let icon = '📄'
+  if (/\.md$/i.test(file)) icon = '📜'
+  else if (/\.json$/i.test(file)) icon = '⚙️'
+  else if (/\.(ts|js|vue|py|rs|toml|ya?ml|css)$/i.test(file)) icon = '⟨⟩'
+  return `<span style="font-size:13px;width:14px;text-align:center">${icon}</span>`
+}
+
+function buildTree(files: string[]): TreeNode[] {
+  const root: TreeNode[] = []
+  const dirMap = new Map<string, TreeNode>()
+  for (const f of files) {
+    const parts = f.split('/')
+    let cur = root
+    let prefix = ''
+    for (let i = 0; i < parts.length; i++) {
+      const part = parts[i]
+      prefix = prefix ? `${prefix}/${part}` : part
+      const isLast = i === parts.length - 1
+      if (isLast) {
+        cur.push({ name: part, path: prefix, children: [], isDir: false })
+      } else {
+        let node = dirMap.get(prefix)
+        if (!node) {
+          node = { name: part, path: prefix, children: [], isDir: true }
+          dirMap.set(prefix, node)
+          cur.push(node)
+        }
+        cur = node.children
+      }
+    }
+  }
+  return root
+}
+
+function renderTree(nodes: TreeNode[], depth: number): string {
+  let html = ''
+  for (const n of nodes) {
+    if (n.isDir) {
+      const isCollapsed = collapsedFiles.value.has(n.path)
+      html += `<div class="tnode${isCollapsed ? ' is-collapsed' : ''}">
+        <div class="trow trow--dir" data-dir="${esc(n.path)}" style="padding-left:${8 + depth * 14}px">
+          <span class="tcaret"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 6l6 6-6 6"/></svg></span>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+          <span>${esc(n.name)}</span>
+        </div>
+        <div class="tchildren">${renderTree(n.children, depth + 1)}</div>
+      </div>`
+    } else {
+      const active = n.path === selFile.value ? ' is-active' : ''
+      html += `<div class="trow trow--file${active}" data-file="${esc(n.path)}" style="padding-left:${8 + depth * 14 + 18}px">
+        ${fileGlyph(n.path)}<span>${esc(n.name)}</span>
+      </div>`
+    }
+  }
+  return html
+}
+
+const fileTreeHtml = computed(() => {
+  if (!selectedPersona.value) return ''
+  return renderTree(buildTree(selectedPersona.value.files), 0)
+})
+
+function sampleContent(file: string): string[] {
+  if (/\.json$/i.test(file)) {
+    return [
+      '{',
+      '  "model": "claude-opus-4",',
+      '  "temperature": 0.7,',
+      '  "tools": ["read_file", "edit_file", "run_cmd"],',
+      '  "persona": "work-mode"',
+      '}'
+    ]
+  }
+  if (/SOUL\.md$|\.md$/i.test(file)) {
+    return [
+      '# SOUL.md',
+      '',
+      '你是 **WorkBuddy**，一个专注的 AI 工程助手。',
+      '',
+      '## 原则',
+      '- 先理解，再动手',
+      '- 用最少代码解决问题',
+      '',
+      '> 简洁优先，拒绝冗余。'
+    ]
+  }
+  return [
+    '# ' + file.split('/').pop(),
+    '',
+    '// 演示内容（真实文件读取待后端接口接入）',
+    'export const config = {',
+    '  sync: true,',
+    '  retry: 3',
+    '}'
+  ]
+}
+
+function highlight(file: string, line: string): string {
+  const e = esc(line)
+  if (/\.json$/i.test(file)) {
+    return e
+      .replace(/(&quot;[^&]*?&quot;)(\s*:)/g, '<span class="kw">$1</span>$2')
+      .replace(/:\s*(&quot;[^&]*?&quot;|[\d.]+|true|false|null)/g, ': <span class="mut">$1</span>')
+  }
+  return e
+}
+
+function renderDoc(lines: string[]): string {
+  let html = ''
+  let inList = false
+  const closeList = () => {
+    if (inList) {
+      html += '</ul>'
+      inList = false
+    }
+  }
+  for (const raw of lines) {
+    if (/^## /.test(raw)) {
+      closeList()
+      html += `<h2>${esc(raw.slice(3))}</h2>`
+    } else if (/^# /.test(raw)) {
+      closeList()
+      html += `<h1>${esc(raw.slice(2))}</h1>`
+    } else if (/^> /.test(raw)) {
+      closeList()
+      html += `<blockquote>${esc(raw.slice(2))}</blockquote>`
+    } else if (/^- /.test(raw)) {
+      if (!inList) {
+        html += '<ul>'
+        inList = true
+      }
+      html += `<li>${esc(raw.slice(2))}</li>`
+    } else if (raw.trim() === '') {
+      closeList()
+    } else {
+      closeList()
+      html += `<p>${esc(raw)}</p>`
+    }
+  }
+  closeList()
+  return html
+}
+
+function renderDiff(file: string): string {
+  const lines = sampleContent(file)
+  let html = `<div class="diff__h">@@ -1,${lines.length} +1,${lines.length} @@ ${esc(file)}</div>`
+  lines.forEach((l, i) => {
+    const sign = i % 3 === 0 ? '-' : '+'
+    const cls = sign === '-' ? 'diff__del' : 'diff__add'
+    html += `<div class="diff__row ${cls}"><span class="diff__sign">${sign}</span><span>${esc(l)}</span></div>`
+  })
+  return html
+}
+
+const previewHtml = computed(() => {
+  if (!selectedPersona.value || !selFile.value) {
+    return '<div class="empty"><div class="empty__icon">📄</div><div class="empty__title">选择文件预览</div></div>'
+  }
+  const file = selFile.value
+  if (selMode.value === 'source') {
+    const lines = sampleContent(file)
+    return `<div class="code">${lines
+      .map((l, i) => `<div><span class="ln">${i + 1}</span>${highlight(file, l)}</div>`)
+      .join('')}</div>`
+  }
+  if (selMode.value === 'diff') {
+    return `<div class="diff">${renderDiff(file)}</div>`
+  }
+  if (/\.md$/i.test(file)) {
+    return `<div class="doc">${renderDoc(sampleContent(file))}</div>`
+  }
+  return '<div class="empty"><div class="empty__icon">📄</div><div class="empty__title">无渲染视图</div><div>该文件类型暂不支持渲染，请切换到「源码」查看</div></div>'
+})
+
+// ---------- 交互 ----------
+function toggleAgent(id: string) {
+  const s = new Set(collapsedAgents.value)
+  if (s.has(id)) s.delete(id)
+  else s.add(id)
+  collapsedAgents.value = s
+}
+
+function selectPersona(agentId: string, name: string) {
+  selected.value = { agentId, name }
+  const p = (grouped.value[agentId] || []).find((x) => x.name === name) || null
+  selectedPersona.value = p
+  selFile.value = p && p.files.length ? p.files[0] : null
+}
+
+function selectFile(file: string) {
+  selFile.value = file
+}
+
+function onFileTreeClick(e: MouseEvent) {
+  const target = e.target as HTMLElement
+  const dirEl = target.closest('.trow--dir')
+  if (dirEl) {
+    const path = (dirEl as HTMLElement).dataset.dir
+    if (path) {
+      const s = new Set(collapsedFiles.value)
+      if (s.has(path)) s.delete(path)
+      else s.add(path)
+      collapsedFiles.value = s
+    }
+    return
+  }
+  const fileEl = target.closest('.trow--file')
+  if (fileEl) {
+    const f = (fileEl as HTMLElement).dataset.file
+    if (f) selectFile(f)
+  }
+}
+
+async function onSwitch(name: string) {
+  if (!selected.value) return
+  try {
+    await switchPersonality(selected.value.agentId, name)
+    toast(`已切换到 ${name}`)
+    await reloadAgent(selected.value.agentId)
+  } catch (e) {
+    toast(`切换失败: ${e}`)
+  }
+}
+
+async function onDelete(name: string) {
+  if (!selected.value) return
+  try {
+    await deletePersonality(selected.value.agentId, name)
+    toast(`已删除 ${name}`)
+    await reloadAgent(selected.value.agentId)
+    if (selected.value.name === name) {
+      selected.value = null
+      selectedPersona.value = null
+    }
+  } catch (e) {
+    toast(`删除失败: ${e}`)
+  }
+}
+
+async function reloadAgent(agentId: string) {
+  try {
+    grouped.value[agentId] = await listPersonalities(agentId)
+  } catch {
+    grouped.value[agentId] = []
+  }
+}
+
+// 保存弹窗
 const saveDialogShow = ref(false)
 const saveName = ref('')
+function openSaveDialog() {
+  saveName.value = ''
+  saveDialogShow.value = true
+}
+async function confirmSave() {
+  if (!selected.value) return
+  if (!saveName.value.trim()) {
+    toast('请输入人格名称')
+    return
+  }
+  try {
+    await savePersonality(selected.value.agentId, saveName.value.trim())
+    toast(`已保存人格 ${saveName.value}`)
+    saveDialogShow.value = false
+    await reloadAgent(selected.value.agentId)
+  } catch (e) {
+    toast(`保存失败: ${e}`)
+  }
+}
 
-// 导入预览弹窗
+// 导出 / 导入
+async function onExport() {
+  if (!selected.value) {
+    toast('请先选择 Agent')
+    return
+  }
+  try {
+    const path = await exportPersonalities(selected.value.agentId, (grouped.value[selected.value.agentId] || []).map((p) => p.name))
+    if (path) toast(`已导出到 ${path}`)
+  } catch (e) {
+    toast(`导出失败: ${e}`)
+  }
+}
+
 const importDialogShow = ref(false)
 const importPreviews = ref<PersonaDiffPreview[]>([])
 const importZipPath = ref('')
 const importConfirmed = ref(false)
 const importing = ref(false)
 
-onMounted(async () => {
-  try {
-    await agentsStore.loadAgents()
-    if (agentsStore.agents.length > 0) {
-      selectedAgentId.value = agentsStore.agents[0].id
-      await loadPersonalities()
-    }
-  } catch (e) {
-    message.warning(`加载 agents 失败: ${e}`)
-  }
-})
-
-async function loadPersonalities() {
-  if (!selectedAgentId.value) return
-  loading.value = true
-  try {
-    personalities.value = await listPersonalities(selectedAgentId.value)
-    // 默认选第一个
-    if (personalities.value.length > 0 && !selectedPersona.value) {
-      selectedPersona.value = personalities.value[0]
-    }
-  } catch (e) {
-    message.error(`加载人格失败: ${e}`)
-  } finally {
-    loading.value = false
-  }
-}
-
-function onSelectPersona(p: Persona) {
-  selectedPersona.value = p
-}
-
-async function onSwitch(name: string) {
-  try {
-    await switchPersonality(selectedAgentId.value, name)
-    message.success(`已切换到 ${name}`)
-    await loadPersonalities()
-  } catch (e) {
-    message.error(`切换失败: ${e}`)
-  }
-}
-
-async function onDelete(name: string) {
-  try {
-    await deletePersonality(selectedAgentId.value, name)
-    message.success(`已删除 ${name}`)
-    await loadPersonalities()
-  } catch (e) {
-    message.error(`删除失败: ${e}`)
-  }
-}
-
-function openSaveDialog() {
-  saveName.value = ''
-  saveDialogShow.value = true
-}
-
-async function confirmSave() {
-  if (!saveName.value.trim()) {
-    message.warning('请输入人格名称')
-    return
-  }
-  try {
-    await savePersonality(selectedAgentId.value, saveName.value.trim())
-    message.success(`已保存人格 ${saveName.value}`)
-    saveDialogShow.value = false
-    await loadPersonalities()
-  } catch (e) {
-    message.error(`保存失败: ${e}`)
-  }
-}
-
-async function onExport() {
-  const selected = personalities.value.map((p) => p.name)
-  if (selected.length === 0) {
-    message.warning('没有可导出的人格')
-    return
-  }
-  try {
-    const path = await exportPersonalities(selectedAgentId.value, selected)
-    if (path) {
-      message.success(`已导出到 ${path}`)
-    }
-  } catch (e) {
-    message.error(`导出失败: ${e}`)
-  }
-}
-
 async function onImportClick() {
+  if (!selected.value) {
+    toast('请先选择 Agent')
+    return
+  }
   try {
-    const result = await previewImport(selectedAgentId.value)
+    const result = await previewImport(selected.value.agentId)
     if (!result) return
     importPreviews.value = result.previews
     importZipPath.value = result.zipPath
     importConfirmed.value = false
     importDialogShow.value = true
   } catch (e) {
-    message.error(`导入预览失败: ${e}`)
+    toast(`导入预览失败: ${e}`)
   }
 }
 
 async function confirmImport() {
+  if (!selected.value) return
   importing.value = true
   try {
-    await importPersonalities(importZipPath.value, selectedAgentId.value)
-    message.success('导入成功')
+    await importPersonalities(importZipPath.value, selected.value.agentId)
+    toast('导入成功')
     importDialogShow.value = false
-    await loadPersonalities()
+    await reloadAgent(selected.value.agentId)
   } catch (e) {
-    message.error(`导入失败: ${e}`)
+    toast(`导入失败: ${e}`)
   } finally {
     importing.value = false
   }
@@ -167,360 +372,176 @@ const actionText: Record<string, string> = {
   modified: '修改',
   unchanged: '未变更'
 }
-const actionType: Record<string, 'success' | 'warning' | 'default'> = {
-  added: 'success',
-  modified: 'warning',
-  unchanged: 'default'
-}
+
+onMounted(async () => {
+  try {
+    await agentsStore.loadAgents()
+    for (const a of agentsStore.agents) {
+      try {
+        grouped.value[a.id] = await listPersonalities(a.id)
+      } catch {
+        grouped.value[a.id] = []
+      }
+    }
+    const first = agentsStore.agents[0]
+    if (first && (grouped.value[first.id] || []).length) {
+      selectPersona(first.id, grouped.value[first.id][0].name)
+    }
+  } catch (e) {
+    toast(`加载失败: ${e}`)
+  }
+})
 </script>
 
 <template>
-  <div class="personalities">
-    <!-- 左侧：人格列表（深色） -->
-    <aside class="personalities__sidebar">
-      <div class="personalities__sidebar-header">
-        <span class="personalities__sidebar-title">人格列表</span>
-        <select
-          v-if="agentsStore.agents.length > 0"
-          v-model="selectedAgentId"
-          class="personalities__agent-select"
-          @change="loadPersonalities"
-        >
-          <option v-for="a in agentsStore.agents" :key="a.id" :value="a.id">
-            {{ a.displayName }}
-          </option>
-        </select>
-      </div>
-
-      <div class="personalities__list">
-        <n-spin v-if="loading" size="small" />
-        <n-empty
-          v-else-if="personalities.length === 0"
-          size="small"
-          description="暂无人格"
-        />
-        <div
-          v-for="p in personalities"
-          :key="p.name"
-          class="personalities__item"
-          :class="{ 'personalities__item--active': selectedPersona?.name === p.name }"
-          @click="onSelectPersona(p)"
-        >
-          <div class="personalities__item-header">
-            <span class="personalities__item-name">{{ p.displayName }}</span>
-            <n-tag v-if="p.importedAt" type="warning" size="small">导入</n-tag>
-          </div>
-          <div class="personalities__item-meta">
-            <span>{{ p.files.length }} 文件</span>
-            <span>{{ Math.round(p.sizeBytes / 1024) }} KB</span>
-          </div>
-          <div class="personalities__item-actions">
-            <n-button size="tiny" @click="onSwitch(p.name)">切换</n-button>
-            <n-button size="tiny" type="error" ghost @click="onDelete(p.name)">删除</n-button>
-          </div>
+  <div class="pl">
+    <!-- 左：树形人格列表 -->
+    <aside class="pl__master">
+      <div class="agent-rail__head">
+        <span class="agent-rail__title">人格</span>
+        <div style="display: flex; align-items: center; gap: 8px">
+          <span class="agent-rail__count">{{ totalPersonas }}</span>
+          <button class="btn btn--quiet" style="padding: 4px 8px; font-size: 12px" @click="onImportClick">导入</button>
         </div>
       </div>
-
-      <div class="personalities__sidebar-footer">
-        <n-space>
-          <n-button size="small" @click="openSaveDialog">保存当前</n-button>
-          <n-button size="small" @click="onImportClick">导入人格包</n-button>
-          <n-button size="small" @click="onExport">导出全部</n-button>
-        </n-space>
+      <div class="pl__master-list">
+        <div
+          v-for="agent in agentsStore.agents"
+          :key="agent.id"
+          class="tnode"
+          :class="{ 'is-collapsed': collapsedAgents.has(agent.id) }"
+        >
+          <div
+            class="trow trow--dir"
+            role="button"
+            tabindex="0"
+            :aria-expanded="!collapsedAgents.has(agent.id)"
+            @click="toggleAgent(agent.id)"
+            @keydown.enter.prevent="toggleAgent(agent.id)"
+          >
+            <span class="tcaret"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 6l6 6-6 6" /></svg></span>
+            <span class="agent__glyph" style="width:18px;height:18px;font-size:10px;border-radius:5px" :style="{ background: agent.accentColor || '#5B4FE9' }">{{ (agent.displayName || agent.id).charAt(0).toUpperCase() }}</span>
+            <span>{{ agent.displayName }}</span>
+            <span class="agent-rail__count" style="margin-left:auto">{{ (grouped[agent.id] || []).length }}</span>
+          </div>
+          <div class="tchildren">
+            <div
+              v-for="p in (grouped[agent.id] || [])"
+              :key="p.name"
+              class="trow trow--file"
+              :class="{ 'is-active': selected?.agentId === agent.id && selected?.name === p.name }"
+              role="button"
+              tabindex="0"
+              @click="selectPersona(agent.id, p.name)"
+              @keydown.enter.prevent="selectPersona(agent.id, p.name)"
+            >
+              <span style="width:14px" />
+              <span>{{ p.displayName }}</span>
+              <span v-if="p.isCurrent" class="agent__cur" style="margin-left:auto">激活</span>
+            </div>
+          </div>
+        </div>
+        <div v-if="totalPersonas === 0" class="empty">
+          <div class="empty__icon">🧩</div>
+          <div class="empty__title">暂无人格</div>
+        </div>
       </div>
     </aside>
 
-    <!-- 右侧：文件预览面板 -->
-    <section class="personalities__main">
-      <div v-if="personalities.length === 0" class="personalities__empty">
-        <n-empty description="请先保存一个人格，或从左侧选择查看文件内容" />
+    <!-- 右：详情 + 文件树 + 预览 -->
+    <section class="pl__detail">
+      <div v-if="!selectedPersona" class="empty">
+        <div class="empty__icon">📄</div>
+        <div class="empty__title">选择左侧人格查看文件</div>
       </div>
+
       <template v-else>
-        <div class="personalities__file-tabs">
-          <div class="personalities__file-tabs-title">
-            {{ selectedPersona ? selectedPersona.displayName + ' 的文件' : '请从左侧选择人格' }}
-          </div>
-        </div>
-        <div class="personalities__editor">
-          <div v-if="!selectedPersona" class="personalities__editor-placeholder">
-            选中人格后可查看文件列表
-          </div>
-          <div v-else class="personalities__file-list">
-            <div
-              v-for="file in selectedPersona.files"
-              :key="file"
-              class="personalities__file-item"
-            >
-              <span class="personalities__file-icon">📄</span>
-              <span class="personalities__file-name">{{ file }}</span>
-            </div>
-            <div v-if="selectedPersona.files.length === 0" class="personalities__editor-placeholder">
-              该人格没有文件
+        <div class="pl__detail-head">
+          <div>
+            <h3 class="pl__detail-title">{{ selectedPersona.displayName }}</h3>
+            <div class="pl__detail-sub">
+              {{ selected?.agentId }} · {{ selectedPersona.files.length }} 文件 · {{ Math.round(selectedPersona.sizeBytes / 1024) }} KB
             </div>
           </div>
+          <div class="pl__detail-acts">
+            <button class="btn btn--primary" @click="onSwitch(selectedPersona.name)">激活</button>
+            <button class="btn btn--danger" @click="onDelete(selectedPersona.name)">删除</button>
+            <button class="btn btn--ghost" @click="openSaveDialog">保存当前</button>
+            <button class="btn btn--quiet" @click="onExport">导出</button>
+          </div>
         </div>
-        <div class="personalities__statusbar">
-          <span>UTF-8</span>
-          <span>{{ selectedPersona ? selectedPersona.files.length : 0 }} 个文件</span>
+
+        <div class="pl__body">
+          <div class="file-rail">
+            <div class="file-rail__head">
+              <span>文件</span>
+              <span>{{ selectedPersona.files.length }}</span>
+            </div>
+            <div class="file-rail__list" @click="onFileTreeClick" v-html="fileTreeHtml" />
+          </div>
+
+          <div class="preview">
+            <div class="preview__bar">
+              <div class="preview__tabs">
+                <button :class="{ 'is-on': selMode === 'render' }" @click="selMode = 'render'">渲染</button>
+                <button :class="{ 'is-on': selMode === 'source' }" @click="selMode = 'source'">源码</button>
+                <button :class="{ 'is-on': selMode === 'diff' }" @click="selMode = 'diff'">差异</button>
+              </div>
+              <span class="preview__hint">预览 · 只读</span>
+            </div>
+            <div class="preview__canvas" v-html="previewHtml" />
+          </div>
         </div>
       </template>
     </section>
+  </div>
 
-    <!-- 保存人格弹窗 -->
-    <n-modal
-      v-model:show="saveDialogShow"
-      preset="card"
-      title="保存当前为人格"
-      style="width: 400px"
-    >
-      <n-input v-model:value="saveName" placeholder="人格名称，如 work-mode" />
-      <template #footer>
-        <n-space justify="end">
-          <n-button @click="saveDialogShow = false">取消</n-button>
-          <n-button type="primary" @click="confirmSave">保存</n-button>
-        </n-space>
-      </template>
-    </n-modal>
-
-    <!-- 导入预览弹窗 -->
-    <n-modal
-      v-model:show="importDialogShow"
-      preset="card"
-      title="导入人格包 - Diff 预览"
-      style="width: 700px; max-width: 90vw"
-    >
-      <div class="import-dialog">
-        <n-alert type="warning" :bordered="false">
-          导入的人格文件本质上是 AI 助手的系统提示词，恶意人格包可能包含 prompt 注入攻击。请仔细审查以下变更。
-        </n-alert>
-
-        <div v-for="preview in importPreviews" :key="preview.name" class="import-dialog__persona">
-          <div class="import-dialog__persona-name">{{ preview.displayName }}</div>
-          <n-list bordered size="small">
-            <n-list-item v-for="file in preview.files" :key="file.path">
-              <n-thing>
-                <template #header>
-                  <span class="import-dialog__file-path">{{ file.path }}</span>
-                </template>
-                <template #description>
-                  <n-tag :type="actionType[file.action]" size="small">
-                    {{ actionText[file.action] }}
-                  </n-tag>
-                </template>
-              </n-thing>
-            </n-list-item>
-          </n-list>
+  <!-- 保存弹窗 -->
+  <div v-if="saveDialogShow" class="modal-mask" @click.self="saveDialogShow = false">
+    <div class="modal">
+      <div class="modal__head"><h3 class="modal__title">保存当前为人格</h3></div>
+      <div class="modal__body">
+        <div class="field">
+          <label class="field__label">人格名称</label>
+          <input v-model="saveName" class="inp" placeholder="如 work-mode" @keydown.enter="confirmSave" />
         </div>
-
-        <n-checkbox v-model:checked="importConfirmed" class="import-dialog__confirm">
-          我已审查导入内容并理解风险
-        </n-checkbox>
       </div>
+      <div class="modal__foot">
+        <button class="btn btn--ghost" @click="saveDialogShow = false">取消</button>
+        <button class="btn btn--primary" @click="confirmSave">保存</button>
+      </div>
+    </div>
+  </div>
 
-      <template #footer>
-        <n-space justify="end">
-          <n-button @click="importDialogShow = false">取消</n-button>
-          <n-button
-            type="primary"
-            :disabled="!importConfirmed"
-            :loading="importing"
-            @click="confirmImport"
-          >
-            确认导入
-          </n-button>
-        </n-space>
-      </template>
-    </n-modal>
+  <!-- 导入弹窗 -->
+  <div v-if="importDialogShow" class="modal-mask" @click.self="importDialogShow = false">
+    <div class="modal" style="width: 680px">
+      <div class="modal__head"><h3 class="modal__title">导入人格包 · Diff 预览</h3></div>
+      <div class="modal__body">
+        <div class="notice notice--warn">
+          导入的人格文件本质上是 AI 助手的系统提示词，恶意人格包可能包含 prompt 注入攻击。请仔细审查以下变更。
+        </div>
+        <div v-for="pv in importPreviews" :key="pv.name" style="margin-top: 14px">
+          <div style="font-weight: 600; margin-bottom: 6px">{{ pv.displayName }}</div>
+          <div v-for="f in pv.files" :key="f.path" class="conflict-file" style="display: flex; align-items: center; justify-content: space-between">
+            <span>{{ f.path }}</span>
+            <span class="tag">{{ actionText[f.action] }}</span>
+          </div>
+        </div>
+        <div class="strat" :class="{ 'is-on': importConfirmed }" style="margin-top: 16px; cursor: pointer" @click="importConfirmed = !importConfirmed">
+          <div class="strat__t">我已审查导入内容并理解风险</div>
+        </div>
+      </div>
+      <div class="modal__foot">
+        <button class="btn btn--ghost" @click="importDialogShow = false">取消</button>
+        <button class="btn btn--primary" :disabled="!importConfirmed || importing" @click="confirmImport">
+          {{ importing ? '导入中…' : '确认导入' }}
+        </button>
+      </div>
+    </div>
   </div>
 </template>
 
 <style scoped>
-.personalities {
-  display: flex;
-  height: 100%;
-}
-
-/* 左侧：深色 */
-.personalities__sidebar {
-  width: 280px;
-  flex-shrink: 0;
-  background: #1e1e1e;
-  color: #e4e4e7;
-  display: flex;
-  flex-direction: column;
-  border-right: 1px solid #27272a;
-  overflow: hidden;
-}
-.personalities__sidebar-header {
-  padding: 16px;
-  border-bottom: 1px solid #27272a;
-}
-.personalities__sidebar-title {
-  font-size: 13px;
-  font-weight: 600;
-  color: #a1a1aa;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  display: block;
-  margin-bottom: 8px;
-}
-.personalities__agent-select {
-  width: 100%;
-  background: #27272a;
-  color: #e4e4e7;
-  border: 1px solid #3f3f46;
-  border-radius: 4px;
-  padding: 4px 8px;
-  font-size: 13px;
-}
-.personalities__list {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  padding: 8px;
-}
-.personalities__item {
-  padding: 10px 12px;
-  border-radius: 6px;
-  margin-bottom: 4px;
-  background: #27272a;
-  cursor: pointer;
-  transition: all 0.15s;
-}
-.personalities__item:hover {
-  background: #3f3f46;
-}
-.personalities__item--active {
-  background: #3f3f46;
-  border-left: 3px solid #3b82f6;
-}
-.personalities__item-header {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-bottom: 6px;
-}
-.personalities__item-name {
-  flex: 1;
-  font-size: 13px;
-  color: #e4e4e7;
-}
-.personalities__item-meta {
-  display: flex;
-  gap: 12px;
-  font-size: 11px;
-  color: #71717a;
-  margin-bottom: 8px;
-}
-.personalities__item-actions {
-  display: flex;
-  gap: 4px;
-}
-.personalities__sidebar-footer {
-  flex-shrink: 0;
-  padding: 12px;
-  border-top: 1px solid #27272a;
-}
-
-/* 深色侧边栏内按钮强制浅色文字 */
-.personalities__sidebar :deep(.n-button) {
-  color: #e4e4e7 !important;
-}
-.personalities__sidebar :deep(.n-button:hover) {
-  color: #fff !important;
-}
-.personalities__sidebar :deep(.n-button--error-type) {
-  color: #f87171 !important;
-}
-
-/* 右侧：浅色 + 暗色编辑器 */
-.personalities__main {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  background: #fff;
-}
-.personalities__empty {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-.personalities__file-tabs {
-  padding: 8px 16px 0;
-  border-bottom: 1px solid #e4e4e7;
-}
-.personalities__file-tabs-title {
-  padding: 8px 0;
-  font-size: 12px;
-  color: #a1a1aa;
-}
-.personalities__editor {
-  flex: 1;
-  background: #1e293b;
-  overflow: auto;
-}
-.personalities__editor-placeholder {
-  padding: 16px;
-  color: #64748b;
-  font-size: 13px;
-  font-family: 'Consolas', 'Monaco', monospace;
-}
-.personalities__file-list {
-  padding: 8px 0;
-}
-.personalities__file-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 16px;
-  color: #cbd5e1;
-  font-size: 13px;
-  font-family: 'Consolas', 'Monaco', monospace;
-}
-.personalities__file-item:hover {
-  background: #334155;
-}
-.personalities__file-icon {
-  font-size: 14px;
-}
-.personalities__file-name {
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.personalities__statusbar {
-  display: flex;
-  gap: 16px;
-  padding: 6px 16px;
-  background: #f4f4f5;
-  border-top: 1px solid #e4e4e7;
-  font-size: 11px;
-  color: #71717a;
-}
-
-/* 导入弹窗 */
-.import-dialog {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-  max-height: 50vh;
-  overflow-y: auto;
-}
-.import-dialog__persona {
-  margin-top: 8px;
-}
-.import-dialog__persona-name {
-  font-weight: 600;
-  margin-bottom: 8px;
-}
-.import-dialog__file-path {
-  font-family: 'Consolas', 'Monaco', monospace;
-  font-size: 13px;
-}
-.import-dialog__confirm {
-  margin-top: 8px;
-}
+.pl__master-list { flex: 1; min-height: 0; overflow-y: auto; padding: var(--s-2); }
 </style>

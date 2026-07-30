@@ -1,56 +1,32 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
-import {
-  NButton,
-  NSpace,
-  NEmpty,
-  NDataTable,
-  NModal,
-  NInput,
-  NList,
-  NListItem,
-  NThing,
-  useMessage
-} from 'naive-ui'
-import type { DataTableColumns } from 'naive-ui'
 import { useAgentsStore } from '@/stores/agents'
 import { useSyncStore } from '@/stores/sync'
 import { useSyncEvents } from '@/composables/useSync'
 import { usePersonalities } from '@/composables/usePersonalities'
+import { showToast } from '@/composables/useToast'
+import type { ResolutionOption } from '@/components/ConflictDialog.vue'
 import SyncStatusBadge from '@/components/SyncStatusBadge.vue'
 import ConflictDialog from '@/components/ConflictDialog.vue'
 import type { Agent, ConflictDetectedPayload, Persona } from '@/types'
 
 const agentsStore = useAgentsStore()
 const syncStore = useSyncStore()
-const message = useMessage()
+const toast = showToast
 
 const activeAgent = ref<Agent | null>(null)
-
-// 开发自检
-const devPingResult = ref('')
-const devAppDataDir = ref('')
-async function devPing() {
-  devPingResult.value = await invoke<string>('ping', { name: 'Dashboard' })
-  devAppDataDir.value = await invoke<string>('get_app_data_dir')
-}
-
-// 冲突弹窗状态
 const conflictShow = ref(false)
 const conflictPayload = ref<ConflictDetectedPayload | null>(null)
 const conflictResolving = ref(false)
 let unlistenEvents: (() => void) | null = null
 
 onMounted(async () => {
-  // 加载 agent 列表
   try {
     await agentsStore.loadAgents()
   } catch (e) {
-    message.warning(`加载 agents 失败: ${e}`)
+    toast(`加载 agents 失败: ${e}`)
   }
-
-  // 监听同步事件
   unlistenEvents = await useSyncEvents({
     onConflict: (payload) => {
       conflictPayload.value = payload
@@ -58,7 +34,6 @@ onMounted(async () => {
     }
   })
 })
-
 onUnmounted(() => {
   if (unlistenEvents) unlistenEvents()
 })
@@ -69,7 +44,7 @@ async function onSelectAgent(agent: Agent) {
   await loadAgentPersonalities(agent.id)
 }
 
-// 人格切换/保存
+// 人格切换 / 保存
 const { listPersonalities, savePersonality, switchPersonality } = usePersonalities()
 const agentPersonalities = ref<Persona[]>([])
 const showSwitchDialog = ref(false)
@@ -81,7 +56,7 @@ const saving = ref(false)
 async function loadAgentPersonalities(agentId: string) {
   try {
     agentPersonalities.value = await listPersonalities(agentId)
-  } catch (e) {
+  } catch {
     agentPersonalities.value = []
   }
 }
@@ -91,14 +66,13 @@ async function onSwitchPersona(name: string) {
   switching.value = true
   try {
     await switchPersonality(activeAgent.value.id, name)
-    message.success(`已切换到 ${name}`)
+    toast(`已切换到 ${name}`)
     showSwitchDialog.value = false
     await agentsStore.loadAgents()
-    // 更新当前选中 agent
     const updated = agentsStore.agents.find((a) => a.id === activeAgent.value?.id)
     if (updated) activeAgent.value = updated
   } catch (e) {
-    message.error(`切换失败: ${e}`)
+    toast(`切换失败: ${e}`)
   } finally {
     switching.value = false
   }
@@ -107,59 +81,45 @@ async function onSwitchPersona(name: string) {
 async function onSavePersona() {
   if (!activeAgent.value) return
   if (!savePersonaName.value.trim()) {
-    message.warning('请输入人格名称')
+    toast('请输入人格名称')
     return
   }
   saving.value = true
   try {
     await savePersonality(activeAgent.value.id, savePersonaName.value.trim())
-    message.success(`已保存人格 ${savePersonaName.value}`)
+    toast(`已保存人格 ${savePersonaName.value}`)
     showSaveDialog.value = false
     savePersonaName.value = ''
     await loadAgentPersonalities(activeAgent.value.id)
   } catch (e) {
-    message.error(`保存失败: ${e}`)
+    toast(`保存失败: ${e}`)
   } finally {
     saving.value = false
   }
 }
 
-async function onConflictResolve(option: 'L1ExportPatch' | 'L1DiscardLocal' | 'L1Cancel' | 'L2KeepLocal' | 'L2KeepRemote' | 'L2ManualMerge' | 'L2Cancel') {
+async function onConflictResolve(option: ResolutionOption) {
   conflictResolving.value = true
   try {
     await syncStore.resolveConflict({ type: option })
     conflictShow.value = false
     conflictPayload.value = null
-    // 刷新 agent 列表
     await agentsStore.loadAgents()
+    toast('冲突已解决')
   } catch (e) {
-    message.error(`解决冲突失败: ${e}`)
+    toast(`解决冲突失败: ${e}`)
   } finally {
     conflictResolving.value = false
   }
 }
-
 function onConflictCancel() {
-  // 取消同步 = L1Cancel 或 L2Cancel
-  const option = conflictPayload.value?.conflictType === 'L1' ? 'L1Cancel' : 'L2Cancel'
+  const option: ResolutionOption = conflictPayload.value?.conflictType === 'L1' ? 'L1Cancel' : 'L2Cancel'
   onConflictResolve(option)
 }
 
-// 文件列表列定义
-interface TrackedFile {
-  name: string
-  size: string
-  mtime: string
-}
-const fileColumns: DataTableColumns<TrackedFile> = [
-  { title: '文件名', key: 'name' },
-  { title: '大小', key: 'size', width: 100 },
-  { title: '最近变更', key: 'mtime', width: 180 }
-]
-const trackedFiles = ref<TrackedFile[]>([])
+// 文件列表
+const trackedFiles = ref<{ name: string; size: string; mtime: string }[]>([])
 const loadingFiles = ref(false)
-
-// 选中 agent 时加载跟踪文件
 async function loadTrackedFiles(agentId: string) {
   loadingFiles.value = true
   try {
@@ -173,160 +133,223 @@ async function loadTrackedFiles(agentId: string) {
       mtime: f.modifiedAt ? new Date(f.modifiedAt).toLocaleString() : '-'
     }))
   } catch (e) {
-    message.error(`加载文件列表失败: ${e}`)
+    toast(`加载文件列表失败: ${e}`)
     trackedFiles.value = []
   } finally {
     loadingFiles.value = false
   }
 }
 
-// Vue h 函数（用于 DataTable render）
+async function onSyncAll() {
+  try {
+    await syncStore.syncAll()
+    toast('已同步 · 全部')
+  } catch (e) {
+    toast(`同步失败: ${e}`)
+  }
+}
 
+function simulateConflict() {
+  if (!activeAgent.value) {
+    toast('请先选择 Agent')
+    return
+  }
+  conflictPayload.value = {
+    agentId: activeAgent.value.id,
+    conflictType: 'L2',
+    files: [{ path: 'SOUL.md', localMtime: Date.now() - 60_000, remoteMtime: Date.now() }]
+  }
+  conflictShow.value = true
+}
 </script>
 
 <template>
-  <div class="dashboard">
-    <aside class="dashboard__sidebar">
-      <div class="dashboard__sidebar-header">
-        <span class="dashboard__sidebar-title" @click="devPing">Agents</span>
-        <span class="dashboard__sidebar-count">{{ agentsStore.agents.length }}</span>
+  <div class="dash">
+    <!-- 左：Agent 列表 -->
+    <aside class="agent-rail">
+      <div class="agent-rail__head">
+        <span class="agent-rail__title">Agents</span>
+        <span class="agent-rail__count">{{ agentsStore.agents.length }}</span>
       </div>
-      <div v-if="devPingResult" class="dashboard__dev">IPC: <span class="dashboard__dev-ok">✓</span></div>
-      <div class="dashboard__agent-list">
-        <div v-if="agentsStore.agents.length === 0" class="dashboard__agent-empty">
-          <div class="dashboard__agent-empty-icon">🤖</div>
-          <p>暂无 Agent</p>
-          <n-button text size="small" @click="agentsStore.loadAgents">刷新</n-button>
+      <div class="agent-list">
+        <div v-if="agentsStore.agents.length === 0" class="detail__empty">
+          <div class="detail__empty-icon">🤖</div>
+          <span>暂无 Agent</span>
         </div>
-        <div v-for="agent in agentsStore.agents" :key="agent.id"
-          class="dashboard__agent-item"
-          :class="{ 'dashboard__agent-item--active': activeAgent?.id === agent.id }"
-          @click="onSelectAgent(agent)">
-          <div class="dashboard__agent-info">
-            <span class="dashboard__agent-name">{{ agent.displayName }}</span>
-            <span class="dashboard__agent-persona">{{ agent.currentPersona || '默认' }}</span>
+        <div
+          v-for="agent in agentsStore.agents"
+          :key="agent.id"
+          class="agent"
+          :class="{ 'is-active': activeAgent?.id === agent.id }"
+          role="button"
+          tabindex="0"
+          @click="onSelectAgent(agent)"
+          @keydown.enter.prevent="onSelectAgent(agent)"
+          @keydown.space.prevent="onSelectAgent(agent)"
+        >
+          <div class="agent__glyph" :style="{ background: agent.accentColor || '#5B4FE9' }">
+            {{ (agent.displayName || agent.id).charAt(0).toUpperCase() }}
+          </div>
+          <div class="agent__body">
+            <div class="agent__name">
+              <span>{{ agent.displayName }}</span>
+              <span v-if="agent.currentPersona" class="agent__cur">激活</span>
+            </div>
+            <div class="agent__sub">{{ agent.configDir }}</div>
           </div>
           <SyncStatusBadge :status="agent.syncStatus" />
         </div>
       </div>
     </aside>
-    <section class="dashboard__main">
-      <header class="dashboard__topbar">
-        <div class="dashboard__topbar-info">
-          <h2 class="dashboard__topbar-name">{{ activeAgent?.displayName || '未选择 Agent' }}</h2>
-          <span v-if="activeAgent" class="dashboard__topbar-path">📁 {{ activeAgent.configDir }}</span>
+
+    <!-- 右：详情 -->
+    <section class="dash__col">
+      <div class="subbar">
+        <div>
+          <h2 class="subbar__title">{{ activeAgent ? activeAgent.displayName : '仪表盘' }}</h2>
+          <div class="subbar__crumb">工作台 / 概览</div>
         </div>
-        <n-button type="primary" :loading="syncStore.syncing" :disabled="!activeAgent" @click="syncStore.syncAll">全部同步</n-button>
-      </header>
-      <div v-if="!activeAgent" class="dashboard__welcome">
-        <div class="dashboard__welcome-icon">⚡</div>
-        <h3 class="dashboard__welcome-title">选择一个 Agent 开始</h3>
-        <p class="dashboard__welcome-desc">从左侧选择 AI 助手，或在设置页添加新的 Agent</p>
+        <div class="subbar__actions">
+          <button class="btn btn--primary" :disabled="!activeAgent || syncStore.syncing || loadingFiles" @click="onSyncAll">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 0 1-9 9 9 9 0 0 1-8-5M3 12a9 9 0 0 1 9-9 9 9 0 0 1 8 5"/><path d="M21 4v4h-4M3 20v-4h4"/></svg>
+            全部同步
+          </button>
+          <button class="btn btn--quiet" @click="simulateConflict">模拟冲突</button>
+        </div>
       </div>
-      <div v-else class="dashboard__content">
-        <div class="dashboard__cards">
-          <div class="dashboard__card">
-            <div class="dashboard__card-header"><span class="dashboard__card-title">同步状态</span></div>
-            <div class="dashboard__card-body">
-              <div class="dashboard__stat">
-                <span class="dashboard__stat-label">上次同步</span>
-                <span class="dashboard__stat-value">{{ activeAgent.lastSyncAt ? new Date(activeAgent.lastSyncAt).toLocaleString() : '从未' }}</span>
-              </div>
-              <div class="dashboard__stat">
-                <span class="dashboard__stat-label">跟踪文件</span>
-                <span class="dashboard__stat-value">{{ activeAgent.trackedFileCount }} 个</span>
-              </div>
-            </div>
-          </div>
-          <div class="dashboard__card">
-            <div class="dashboard__card-header"><span class="dashboard__card-title">当前人格</span></div>
-            <div class="dashboard__card-body">
-              <div class="dashboard__stat">
-                <span class="dashboard__stat-label">激活人格</span>
-                <span class="dashboard__stat-value">{{ activeAgent.currentPersona || '未激活' }}</span>
-              </div>
-            </div>
-            <div class="dashboard__card-footer">
-              <n-button size="small" secondary @click="showSwitchDialog = true">切换</n-button>
-              <n-button size="small" secondary @click="showSaveDialog = true">保存当前</n-button>
-            </div>
-          </div>
+
+      <div class="detail">
+        <div v-if="!activeAgent" class="detail__empty">
+          <div class="detail__empty-icon">⚡</div>
+          <div class="empty__title">选择一个 Agent 开始</div>
+          <div>从左侧选择 AI 助手，或在设置页添加新 Agent</div>
         </div>
-        <div class="dashboard__files">
-          <div class="dashboard__files-header">
-            <span class="dashboard__card-title">跟踪文件</span>
-            <span class="dashboard__files-count">{{ trackedFiles.length }} 个文件</span>
+
+        <template v-else>
+          <div class="summary">
+            <div class="summary__top">
+              <div>
+                <h3 class="summary__name">{{ activeAgent.displayName }}</h3>
+                <div class="summary__path">📁 {{ activeAgent.configDir }}</div>
+              </div>
+              <div class="summary__acts">
+                <button class="btn btn--ghost" :disabled="switching" @click="showSwitchDialog = true">切换</button>
+                <button class="btn btn--ghost" @click="showSaveDialog = true">保存当前</button>
+              </div>
+            </div>
+            <div class="stat-row">
+              <div class="stat">
+                <span class="stat__label">上次同步</span>
+                <span class="stat__value stat__value--sm">{{ activeAgent.lastSyncAt ? new Date(activeAgent.lastSyncAt).toLocaleString() : '从未' }}</span>
+              </div>
+              <div class="stat">
+                <span class="stat__label">跟踪文件</span>
+                <span class="stat__value stat__value--sm">{{ activeAgent.trackedFileCount }}</span>
+              </div>
+              <div class="stat">
+                <span class="stat__label">当前人格</span>
+                <span class="stat__value stat__value--sm">{{ activeAgent.currentPersona || '未激活' }}</span>
+              </div>
+            </div>
+
+            <div class="persona-bar">
+              <span class="persona-bar__label">人格快切</span>
+              <span
+                v-for="p in agentPersonalities"
+                :key="p.name"
+                class="chip"
+                :class="{ 'is-current': p.name === activeAgent.currentPersona }"
+                role="button"
+                tabindex="0"
+                @click="onSwitchPersona(p.name)"
+                @keydown.enter.prevent="onSwitchPersona(p.name)"
+                @keydown.space.prevent="onSwitchPersona(p.name)"
+              >{{ p.name }}</span>
+              <span
+                class="chip chip--add"
+                role="button"
+                tabindex="0"
+                @click="showSaveDialog = true"
+                @keydown.enter.prevent="showSaveDialog = true"
+              >+ 保存当前</span>
+            </div>
           </div>
-          <n-data-table :columns="fileColumns" :data="trackedFiles" :bordered="false" :loading="loadingFiles" size="small" flex-height style="height: 100%" />
-        </div>
+
+          <div class="panel">
+            <div class="panel__head">
+              <span class="panel__title">跟踪文件</span>
+              <span class="panel__meta">{{ trackedFiles.length }} 个文件</span>
+            </div>
+            <table class="filedata">
+              <thead>
+                <tr><th>文件名</th><th>大小</th><th>最近变更</th></tr>
+              </thead>
+              <tbody>
+                <tr v-for="f in trackedFiles" :key="f.name">
+                  <td class="mono">{{ f.name }}</td>
+                  <td>{{ f.size }}</td>
+                  <td>{{ f.mtime }}</td>
+                </tr>
+                <tr v-if="trackedFiles.length === 0">
+                  <td colspan="3" style="text-align: center; color: var(--ink-3)">
+                    {{ loadingFiles ? '加载中…' : '无文件' }}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </template>
       </div>
     </section>
-    <ConflictDialog :show="conflictShow" :payload="conflictPayload" :resolving="conflictResolving" @resolve="onConflictResolve" @cancel="onConflictCancel" />
-    <n-modal v-model:show="showSwitchDialog" preset="card" title="切换人格" style="width: 400px">
-      <n-empty v-if="agentPersonalities.length === 0" description="暂无已保存的人格" />
-      <n-list v-else bordered>
-        <n-list-item v-for="p in agentPersonalities" :key="p.name" class="dashboard__persona-item" @click="!switching && onSwitchPersona(p.name)">
-          <n-thing>
-            <template #header>{{ p.displayName }}</template>
-            <template #description>{{ p.files.length }} 文件 · {{ Math.round(p.sizeBytes / 1024) }} KB</template>
-          </n-thing>
-        </n-list-item>
-      </n-list>
-      <div v-if="switching" class="dashboard__switching">切换中...</div>
-    </n-modal>
-    <n-modal v-model:show="showSaveDialog" preset="card" title="保存当前为人格" style="width: 400px">
-      <n-input v-model:value="savePersonaName" placeholder="人格名称，如 work-mode" />
-      <template #footer>
-        <n-space justify="end">
-          <n-button @click="showSaveDialog = false">取消</n-button>
-          <n-button type="primary" :loading="saving" @click="onSavePersona">保存</n-button>
-        </n-space>
-      </template>
-    </n-modal>
+
+    <!-- 切换人格弹窗 -->
+    <div v-if="showSwitchDialog" class="modal-mask" @click.self="showSwitchDialog = false">
+      <div class="modal">
+        <div class="modal__head"><h3 class="modal__title">切换人格</h3></div>
+        <div class="modal__body">
+          <div v-if="agentPersonalities.length === 0" class="empty"><span class="empty__title">暂无已保存的人格</span></div>
+          <div v-else class="opt-list">
+            <div v-for="p in agentPersonalities" :key="p.name" class="opt" @click="onSwitchPersona(p.name)">
+              <div class="opt__radio" />
+              <div>
+                <div class="opt__t">{{ p.displayName }}</div>
+                <div class="opt__d">{{ p.files.length }} 文件 · {{ Math.round(p.sizeBytes / 1024) }} KB</div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="modal__foot"><button class="btn btn--ghost" @click="showSwitchDialog = false">关闭</button></div>
+      </div>
+    </div>
+
+    <!-- 保存人格弹窗 -->
+    <div v-if="showSaveDialog" class="modal-mask" @click.self="showSaveDialog = false">
+      <div class="modal">
+        <div class="modal__head"><h3 class="modal__title">保存当前为人格</h3></div>
+        <div class="modal__body">
+          <div class="field">
+            <label class="field__label">人格名称</label>
+            <input v-model="savePersonaName" class="inp" placeholder="如 work-mode" @keydown.enter="onSavePersona" />
+          </div>
+        </div>
+        <div class="modal__foot">
+          <button class="btn btn--ghost" @click="showSaveDialog = false">取消</button>
+          <button class="btn btn--primary" :disabled="saving" @click="onSavePersona">{{ saving ? '保存中…' : '保存' }}</button>
+        </div>
+      </div>
+    </div>
+
+    <ConflictDialog
+      :show="conflictShow"
+      :payload="conflictPayload"
+      :resolving="conflictResolving"
+      @resolve="onConflictResolve"
+      @cancel="onConflictCancel"
+    />
   </div>
 </template>
 
 <style scoped>
-.dashboard { display: flex; height: 100%; }
-.dashboard__sidebar { width: 240px; flex-shrink: 0; background: var(--bg-sidebar); display: flex; flex-direction: column; overflow: hidden; }
-.dashboard__sidebar-header { display: flex; align-items: center; justify-content: space-between; padding: 16px 20px; }
-.dashboard__sidebar-title { font-size: 11px; font-weight: 700; color: var(--text-sidebar-muted); text-transform: uppercase; letter-spacing: 1px; cursor: pointer; }
-.dashboard__sidebar-count { font-size: 11px; color: var(--text-sidebar-muted); background: var(--bg-sidebar-hover); padding: 2px 8px; border-radius: 10px; }
-.dashboard__dev { padding: 0 20px 4px; font-size: 10px; color: var(--text-sidebar-muted); }
-.dashboard__dev-ok { color: var(--color-success); }
-.dashboard__agent-list { flex: 1; min-height: 0; overflow-y: auto; padding: 0 8px; }
-.dashboard__agent-empty { text-align: center; padding: 40px 20px; color: var(--text-sidebar-muted); }
-.dashboard__agent-empty-icon { font-size: 32px; margin-bottom: 8px; }
-.dashboard__agent-empty p { margin: 0 0 8px 0; font-size: 13px; }
-.dashboard__agent-item { display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; border-radius: var(--radius-sm); cursor: pointer; transition: var(--transition); margin-bottom: 2px; }
-.dashboard__agent-item:hover { background: var(--bg-sidebar-hover); }
-.dashboard__agent-item--active { background: var(--bg-sidebar-active); }
-.dashboard__agent-info { display: flex; flex-direction: column; gap: 2px; }
-.dashboard__agent-name { font-size: 13px; font-weight: 500; color: var(--text-sidebar); }
-.dashboard__agent-persona { font-size: 11px; color: var(--text-sidebar-muted); }
-.dashboard__main { flex: 1; display: flex; flex-direction: column; overflow: hidden; background: var(--bg-app); }
-.dashboard__topbar { display: flex; justify-content: space-between; align-items: center; padding: 16px 24px; background: var(--bg-card); border-bottom: 1px solid var(--border-light); }
-.dashboard__topbar-info { display: flex; flex-direction: column; gap: 2px; }
-.dashboard__topbar-name { margin: 0; font-size: 18px; font-weight: 700; color: var(--text-primary); }
-.dashboard__topbar-path { font-size: 12px; color: var(--text-tertiary); }
-.dashboard__welcome { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; color: var(--text-tertiary); }
-.dashboard__welcome-icon { font-size: 48px; margin-bottom: 16px; }
-.dashboard__welcome-title { margin: 0 0 8px 0; font-size: 18px; color: var(--text-secondary); }
-.dashboard__welcome-desc { margin: 0; font-size: 14px; }
-.dashboard__content { flex: 1; display: flex; flex-direction: column; gap: var(--space-md); padding: var(--space-lg); overflow: auto; }
-.dashboard__cards { display: flex; gap: var(--space-md); }
-.dashboard__card { flex: 1; background: var(--bg-card); border: 1px solid var(--border-light); border-radius: var(--radius-md); overflow: hidden; }
-.dashboard__card-header { padding: 12px 16px 0; }
-.dashboard__card-title { font-size: 13px; font-weight: 600; color: var(--text-secondary); }
-.dashboard__card-body { padding: 12px 16px; display: flex; gap: 32px; }
-.dashboard__stat { display: flex; flex-direction: column; gap: 4px; }
-.dashboard__stat-label { font-size: 11px; color: var(--text-tertiary); }
-.dashboard__stat-value { font-size: 15px; font-weight: 600; color: var(--text-primary); }
-.dashboard__card-footer { display: flex; gap: var(--space-sm); padding: 8px 16px 12px; border-top: 1px solid var(--border-light); }
-.dashboard__files { flex: 1; min-height: 200px; background: var(--bg-card); border: 1px solid var(--border-light); border-radius: var(--radius-md); display: flex; flex-direction: column; overflow: hidden; }
-.dashboard__files-header { display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; border-bottom: 1px solid var(--border-light); }
-.dashboard__files-count { font-size: 12px; color: var(--text-tertiary); }
-.dashboard__persona-item { cursor: pointer; transition: var(--transition); }
-.dashboard__persona-item:hover { background: var(--bg-hover); }
-.dashboard__switching { text-align: center; padding: 12px; color: var(--text-tertiary); }
+.dash__col { display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+.detail { flex: 1; min-height: 0; }
 </style>

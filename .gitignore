@@ -28,3 +28,9 @@ Thumbs.db
 # 日志
 *.log
 npm-debug.log*
+
+# 本地运行时数据
+.workbuddy/
+
+# 设计稿 / 迁移文档（本地参考，不上传）
+design/

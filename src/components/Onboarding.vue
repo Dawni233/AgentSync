@@ -1,27 +1,11 @@
 <script setup lang="ts">
 import { ref, reactive } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
-import {
-  NCard,
-  NForm,
-  NFormItem,
-  NInput,
-  NSelect,
-  NButton,
-  NSpace,
-  NTag,
-  NSteps,
-  NStep,
-  NCheckbox,
-  NRadio,
-  NRadioGroup,
-  NAlert,
-  NSpin,
-  useMessage
-} from 'naive-ui'
+import { showToast } from '@/composables/useToast'
 
 const emit = defineEmits<{ completed: [] }>()
-const message = useMessage()
+
+const toast = showToast
 
 const currentStep = ref(1)
 
@@ -42,7 +26,7 @@ const authVerified = ref(false)
 
 async function verifyAuth() {
   if (!credentials.repoUrl || !credentials.patToken) {
-    message.warning('请填写仓库 URL 和 PAT')
+    toast('请填写仓库 URL 和 PAT')
     return
   }
   authTesting.value = true
@@ -53,13 +37,10 @@ async function verifyAuth() {
       token: credentials.patToken
     })
     authVerified.value = ok
-    if (ok) {
-      message.success('凭据验证通过')
-    } else {
-      message.error('凭据验证失败')
-    }
+    if (ok) toast('凭据验证通过')
+    else toast('凭据验证失败')
   } catch (e) {
-    message.error(`验证失败: ${e}`)
+    toast(`验证失败: ${e}`)
   } finally {
     authTesting.value = false
   }
@@ -67,7 +48,7 @@ async function verifyAuth() {
 
 function goToStep2() {
   if (!authVerified.value) {
-    message.warning('请先验证凭据')
+    toast('请先验证凭据')
     return
   }
   currentStep.value = 2
@@ -85,6 +66,14 @@ const presetAgents = [
   { id: 'qwenpaw', label: 'QwenPaw', desc: '~/.qwenpaw', color: '#3b82f6' }
 ]
 const selectedPresets = ref<string[]>(['workbuddy', 'claude-code', 'cursor', 'codex', 'zcode', 'qoder', 'openclaw', 'qwenpaw'])
+
+function togglePreset(id: string) {
+  if (selectedPresets.value.includes(id)) {
+    selectedPresets.value = selectedPresets.value.filter((x) => x !== id)
+  } else {
+    selectedPresets.value.push(id)
+  }
+}
 
 // 导入策略：当本地和远程都有配置时如何处理
 const importStrategy = ref<'auto' | 'preferLocal' | 'preferRemote'>('auto')
@@ -136,15 +125,15 @@ async function startInit() {
     })
     initResult.value = result
     if (result.success) {
-      message.success('初始化完成')
+      toast('初始化完成')
       currentStep.value = 3
     } else {
       initError.value = result.errorMessage || '初始化失败'
-      message.error(initError.value)
+      toast('初始化失败')
     }
   } catch (e) {
     initError.value = String(e)
-    message.error(`初始化失败: ${e}`)
+    toast(`初始化失败: ${e}`)
   } finally {
     initializing.value = false
   }
@@ -169,268 +158,139 @@ const strategyText: Record<string, string> = {
 </script>
 
 <template>
-  <div class="onboarding">
-    <div class="onboarding__container">
-      <div class="onboarding__logo">
-        <svg width="28" height="28" viewBox="0 0 20 20" fill="none">
-          <path d="M10 2L3 6v8l7 4 7-4V6l-7-4z" stroke="white" stroke-width="1.5" stroke-linejoin="round"/>
-          <path d="M10 2v16M3 6l7 4 7-4M3 14l7-4 7 4" stroke="white" stroke-width="1.5" stroke-linejoin="round" opacity="0.6"/>
+  <div class="onb">
+    <div class="onb__card">
+      <div class="onb__logo">
+        <svg width="22" height="22" viewBox="0 0 20 20" fill="none">
+          <path d="M10 2L3 6v8l7 4 7-4V6l-7-4z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" />
+          <path d="M10 2v16M3 6l7 4 7-4M3 14l7-4 7 4" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" opacity="0.55" />
         </svg>
       </div>
-      <h1 class="onboarding__title">AgentSync</h1>
-      <p class="onboarding__subtitle">配置 Git 仓库以开始同步你的 AI 助手配置</p>
+      <h1 class="onb__title">AgentSync</h1>
+      <p class="onb__sub">配置 Git 仓库以开始同步你的 AI 助手配置</p>
 
-      <n-steps :current="currentStep" class="onboarding__steps">
-        <n-step title="仓库凭据" />
-        <n-step title="预置 Agent" />
-        <n-step title="完成" />
-      </n-steps>
+      <div class="steps">
+        <div class="steps__dot" :class="{ 'is-done': currentStep > 1, 'is-active': currentStep === 1 }">
+          <span class="steps__n">1</span><span class="steps__t">仓库凭据</span>
+        </div>
+        <div class="steps__line" />
+        <div class="steps__dot" :class="{ 'is-done': currentStep > 2, 'is-active': currentStep === 2 }">
+          <span class="steps__n">2</span><span class="steps__t">预置 Agent</span>
+        </div>
+        <div class="steps__line" />
+        <div class="steps__dot" :class="{ 'is-active': currentStep === 3 }">
+          <span class="steps__n">3</span><span class="steps__t">完成</span>
+        </div>
+      </div>
 
       <!-- 步骤 1：凭据 -->
-      <n-card v-if="currentStep === 1" class="onboarding__card">
-        <n-form label-placement="left" :label-width="100">
-          <n-form-item label="仓库 URL">
-            <n-input
-              v-model:value="credentials.repoUrl"
-              placeholder="https://gitee.com/user/workbuddy-sync.git"
-            />
-          </n-form-item>
-          <n-form-item label="平台">
-            <n-select v-model:value="credentials.platform" :options="platformOptions" />
-          </n-form-item>
-          <n-form-item label="访问令牌">
-            <n-space align="center">
-              <n-input
-                v-model:value="credentials.patToken"
-                type="password"
-                show-password-on="click"
-                placeholder="Personal Access Token"
-                style="width: 360px"
-              />
-              <n-button :loading="authTesting" @click="verifyAuth">验证</n-button>
-              <n-tag v-if="authVerified" type="success">已验证</n-tag>
-            </n-space>
-          </n-form-item>
-        </n-form>
-
-        <n-alert type="info" :bordered="false" class="onboarding__tip">
-          请使用私有仓库同步。PAT 需有仓库读写权限。
-        </n-alert>
-
-        <div class="onboarding__actions">
-          <n-button type="primary" :disabled="!authVerified" @click="goToStep2">
-            下一步
-          </n-button>
+      <div v-if="currentStep === 1">
+        <div class="field" style="margin-bottom: 14px">
+          <label class="field__label">仓库 URL</label>
+          <input v-model="credentials.repoUrl" class="inp" placeholder="https://gitee.com/user/workbuddy-sync.git" />
         </div>
-      </n-card>
+        <div class="field" style="margin-bottom: 14px">
+          <label class="field__label">平台</label>
+          <select v-model="credentials.platform" class="sel">
+            <option v-for="o in platformOptions" :key="o.value" :value="o.value">{{ o.label }}</option>
+          </select>
+        </div>
+        <div class="field" style="margin-bottom: 14px">
+          <label class="field__label">访问令牌</label>
+          <div class="form-row__ctrl" style="width: 100%">
+            <input v-model="credentials.patToken" type="password" class="inp" placeholder="Personal Access Token" style="flex: 1" />
+            <button class="btn btn--ghost" :disabled="authTesting" @click="verifyAuth">{{ authTesting ? '验证中…' : '验证' }}</button>
+            <span v-if="authVerified" class="tag tag--ok">已验证</span>
+          </div>
+        </div>
+        <div class="notice notice--info">请使用私有仓库同步。PAT 需有仓库读写权限。</div>
+        <div class="onb__actions">
+          <button class="btn btn--primary" :disabled="!authVerified" @click="goToStep2">下一步</button>
+        </div>
+      </div>
 
       <!-- 步骤 2：预置 agent + 导入策略 -->
-      <n-card v-else-if="currentStep === 2" class="onboarding__card">
-        <p class="onboarding__step-desc">
+      <div v-else-if="currentStep === 2">
+        <p style="margin: 0 0 14px; color: var(--ink-2); font-size: 14px">
           选择要预置的 AI 助手。应用会检测本地配置目录并自动导入。
         </p>
-
-        <div class="onboarding__presets">
+        <div class="preset-grid">
           <label
             v-for="agent in presetAgents"
             :key="agent.id"
-            class="onboarding__preset-item"
-            :class="{ 'onboarding__preset-item--active': selectedPresets.includes(agent.id) }"
+            class="preset"
+            :class="{ 'is-on': selectedPresets.includes(agent.id) }"
+            @click="togglePreset(agent.id)"
           >
-            <n-checkbox
-              :checked="selectedPresets.includes(agent.id)"
-              @update:checked="(v) => {
-                if (v) selectedPresets.push(agent.id)
-                else selectedPresets = selectedPresets.filter(id => id !== agent.id)
-              }"
-            />
-            <span class="onboarding__preset-name" :style="{ color: agent.color }">
-              {{ agent.label }}
-            </span>
-            <span class="onboarding__preset-path">{{ agent.desc }}</span>
+            <span class="preset__check" />
+            <span class="preset__name">{{ agent.label }}</span>
+            <span class="preset__path">{{ agent.desc }}</span>
           </label>
         </div>
 
-        <!-- 导入策略选择 -->
-        <div class="onboarding__strategy">
-          <div class="onboarding__strategy-title">导入策略</div>
-          <div class="onboarding__strategy-desc">
+        <div style="margin-top: 22px">
+          <div style="font-weight: 600; font-size: 14px; margin-bottom: 6px">导入策略</div>
+          <div style="font-size: 12px; color: var(--ink-3); margin-bottom: 12px">
             当本地和远程都有配置时，如何处理冲突：
           </div>
-          <n-radio-group v-model:value="importStrategy" class="onboarding__strategy-group">
+          <div class="strat-grid">
             <div
               v-for="opt in strategyOptions"
               :key="opt.value"
-              class="onboarding__strategy-item"
+              class="strat"
+              :class="{ 'is-on': importStrategy === opt.value }"
+              @click="importStrategy = opt.value as any"
             >
-              <n-radio :value="opt.value">{{ opt.label }}</n-radio>
-              <div class="onboarding__strategy-item-desc">{{ opt.desc }}</div>
-            </div>
-          </n-radio-group>
-        </div>
-
-        <div class="onboarding__actions">
-          <n-button @click="currentStep = 1">上一步</n-button>
-          <n-button
-            type="primary"
-            :loading="initializing"
-            :disabled="selectedPresets.length === 0"
-            @click="startInit"
-          >
-            开始初始化
-          </n-button>
-        </div>
-      </n-card>
-
-      <!-- 步骤 3：完成/错误/加载中 -->
-      <n-card v-else class="onboarding__card">
-        <!-- 加载中 -->
-        <div v-if="initializing" class="onboarding__loading">
-          <n-spin size="large" />
-          <p class="onboarding__loading-text">正在初始化，请稍候...</p>
-          <p class="onboarding__loading-hint">（clone 仓库 + 导入配置 + 推送到远程）</p>
-        </div>
-
-        <!-- 错误 -->
-        <div v-else-if="initError" class="onboarding__error">
-          <p class="onboarding__error-title">✗ 初始化失败</p>
-          <n-alert type="error" :bordered="false">{{ initError }}</n-alert>
-          <div class="onboarding__actions">
-            <n-button @click="retryInit">返回重试</n-button>
-          </div>
-        </div>
-
-        <!-- 成功 -->
-        <div v-else-if="initResult?.success" class="onboarding__success-block">
-          <p class="onboarding__success">✓ 初始化成功</p>
-          <div v-if="initResult.importedAgents.length > 0" class="onboarding__imported">
-            <div
-              v-for="agent in initResult.importedAgents"
-              :key="agent.agentId"
-              class="onboarding__imported-item"
-            >
-              <span class="onboarding__imported-name">{{ agent.agentId }}</span>
-              <n-tag size="small">{{ strategyText[agent.strategy] }}</n-tag>
+              <div class="strat__t">{{ opt.label }}</div>
+              <div class="strat__d">{{ opt.desc }}</div>
             </div>
           </div>
-          <div v-else class="onboarding__imported-empty">
-            没有预置 agent 被导入
-          </div>
-          <div class="onboarding__actions">
-            <n-button type="primary" @click="finish">进入应用</n-button>
-          </div>
         </div>
 
-        <!-- 兜底（不应到达） -->
-        <div v-else class="onboarding__unknown">
-          <p>状态未知，请重试</p>
-          <n-button @click="retryInit">返回重试</n-button>
+        <div class="onb__actions">
+          <button class="btn btn--ghost" @click="currentStep = 1">上一步</button>
+          <button class="btn btn--primary" :disabled="selectedPresets.length === 0" @click="startInit">开始初始化</button>
         </div>
-      </n-card>
+      </div>
+
+      <!-- 步骤 3：完成 / 错误 / 加载中 -->
+      <div v-else>
+        <div v-if="initializing" class="onb__loading">
+          <div class="onb__spin" />
+          <p style="margin-top: 16px; color: var(--ink-2)">正在初始化，请稍候…</p>
+          <p style="font-size: 12px; color: var(--ink-3)">（clone 仓库 + 导入配置 + 推送到远程）</p>
+        </div>
+        <div v-else-if="initError" class="onb__error">
+          <p style="color: var(--error); text-align: center; font-size: 18px; margin: 16px 0">✗ 初始化失败</p>
+          <div class="notice notice--error">{{ initError }}</div>
+          <div class="onb__actions">
+            <button class="btn btn--ghost" @click="retryInit">返回重试</button>
+          </div>
+        </div>
+        <div v-else-if="initResult?.success" class="onb__success-block">
+          <p style="color: var(--success); text-align: center; font-size: 18px; margin: 16px 0">✓ 初始化成功</p>
+          <div v-if="initResult.importedAgents.length > 0">
+            <div v-for="agent in initResult.importedAgents" :key="agent.agentId" class="imported-row">
+              <span style="font-weight: 500">{{ agent.agentId }}</span>
+              <span class="tag">{{ strategyText[agent.strategy] }}</span>
+            </div>
+          </div>
+          <div v-else style="text-align: center; color: var(--ink-3); margin: 16px 0">没有预置 agent 被导入</div>
+          <div class="onb__actions">
+            <button class="btn btn--primary" @click="finish">进入应用</button>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 </template>
 
 <style scoped>
-.onboarding {
-  height: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--bg-app);
+.onb__loading, .onb__error, .onb__success-block { text-align: center; padding: 24px 0; }
+.onb__spin {
+  width: 30px; height: 30px; margin: 0 auto;
+  border: 3px solid var(--line-strong); border-top-color: var(--brand);
+  border-radius: 50%; animation: onb-spin 0.7s linear infinite;
 }
-.onboarding__container {
-  width: 600px;
-  max-width: 90vw;
-}
-.onboarding__logo {
-  width: 48px;
-  height: 48px;
-  border-radius: var(--radius-md);
-  background: var(--brand-gradient);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  margin: 0 auto 16px;
-  box-shadow: 0 4px 16px rgba(99, 102, 241, 0.3);
-}
-.onboarding__title {
-  margin: 0 0 8px 0;
-  font-size: 28px;
-  font-weight: 800;
-  text-align: center;
-  letter-spacing: -0.5px;
-  background: var(--brand-gradient);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-}
-.onboarding__subtitle {
-  margin: 0 0 28px 0;
-  text-align: center;
-  color: var(--text-tertiary);
-  font-size: 14px;
-}
-.onboarding__steps { margin-bottom: 24px; }
-.onboarding__card {
-  margin-bottom: 16px;
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-md);
-}
-.onboarding__tip { margin-top: 12px; }
-.onboarding__actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: var(--space-sm);
-  margin-top: 16px;
-}
-.onboarding__step-desc {
-  margin: 0 0 16px 0;
-  color: var(--text-secondary);
-  font-size: 14px;
-}
-.onboarding__presets { display: flex; flex-direction: column; gap: var(--space-sm); }
-.onboarding__preset-item {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 12px 16px;
-  border: 1px solid var(--border-light);
-  border-radius: var(--radius-md);
-  cursor: pointer;
-  transition: var(--transition);
-}
-.onboarding__preset-item:hover { border-color: var(--brand-primary-light); }
-.onboarding__preset-item--active {
-  border-color: var(--brand-primary);
-  background: rgba(99, 102, 241, 0.05);
-}
-.onboarding__preset-name { font-weight: 600; font-size: 14px; }
-.onboarding__preset-path { color: var(--text-tertiary); font-size: 12px; margin-left: auto; }
-
-.onboarding__strategy { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--border-light); }
-.onboarding__strategy-title { font-weight: 600; font-size: 14px; margin-bottom: 4px; }
-.onboarding__strategy-desc { font-size: 12px; color: var(--text-tertiary); margin-bottom: 12px; }
-.onboarding__strategy-group { display: flex; flex-direction: column; gap: var(--space-sm); }
-.onboarding__strategy-item {
-  padding: 8px 12px;
-  border: 1px solid var(--border-light);
-  border-radius: var(--radius-sm);
-}
-.onboarding__strategy-item-desc { font-size: 12px; color: var(--text-tertiary); margin-top: 4px; padding-left: 24px; }
-
-.onboarding__loading { text-align: center; padding: 40px 0; }
-.onboarding__loading-text { margin-top: 16px; font-size: 15px; color: var(--text-secondary); }
-.onboarding__loading-hint { margin-top: 4px; font-size: 12px; color: var(--text-tertiary); }
-.onboarding__error-title { text-align: center; font-size: 18px; color: var(--color-error); margin: 16px 0; }
-.onboarding__success { text-align: center; font-size: 18px; color: var(--color-success); margin: 16px 0; }
-.onboarding__success-block { padding: 8px 0; }
-.onboarding__imported { margin: 16px 0; }
-.onboarding__imported-item {
-  display: flex; justify-content: space-between; align-items: center;
-  padding: 8px 12px; border-bottom: 1px solid var(--border-light);
-}
-.onboarding__imported-name { font-weight: 500; }
-.onboarding__imported-empty { text-align: center; color: var(--text-tertiary); font-size: 13px; margin: 16px 0; }
-.onboarding__unknown { text-align: center; padding: 20px; }
+@keyframes onb-spin { to { transform: rotate(360deg); } }
 </style>
