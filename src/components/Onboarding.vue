@@ -171,7 +171,13 @@ const strategyText: Record<string, string> = {
 <template>
   <div class="onboarding">
     <div class="onboarding__container">
-      <h1 class="onboarding__title">AgentSync 初始化</h1>
+      <div class="onboarding__logo">
+        <svg width="28" height="28" viewBox="0 0 20 20" fill="none">
+          <path d="M10 2L3 6v8l7 4 7-4V6l-7-4z" stroke="white" stroke-width="1.5" stroke-linejoin="round"/>
+          <path d="M10 2v16M3 6l7 4 7-4M3 14l7-4 7 4" stroke="white" stroke-width="1.5" stroke-linejoin="round" opacity="0.6"/>
+        </svg>
+      </div>
+      <h1 class="onboarding__title">AgentSync</h1>
       <p class="onboarding__subtitle">配置 Git 仓库以开始同步你的 AI 助手配置</p>
 
       <n-steps :current="currentStep" class="onboarding__steps">
@@ -331,159 +337,100 @@ const strategyText: Record<string, string> = {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: #f5f5f5;
+  background: var(--bg-app);
 }
 .onboarding__container {
-  width: 640px;
+  width: 600px;
   max-width: 90vw;
+}
+.onboarding__logo {
+  width: 48px;
+  height: 48px;
+  border-radius: var(--radius-md);
+  background: var(--brand-gradient);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto 16px;
+  box-shadow: 0 4px 16px rgba(99, 102, 241, 0.3);
 }
 .onboarding__title {
   margin: 0 0 8px 0;
-  font-size: 24px;
+  font-size: 28px;
+  font-weight: 800;
   text-align: center;
+  letter-spacing: -0.5px;
+  background: var(--brand-gradient);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
 }
 .onboarding__subtitle {
-  margin: 0 0 24px 0;
+  margin: 0 0 28px 0;
   text-align: center;
-  color: #71717a;
+  color: var(--text-tertiary);
   font-size: 14px;
 }
-.onboarding__steps {
-  margin-bottom: 24px;
-}
+.onboarding__steps { margin-bottom: 24px; }
 .onboarding__card {
   margin-bottom: 16px;
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
 }
-.onboarding__tip {
-  margin-top: 12px;
-}
+.onboarding__tip { margin-top: 12px; }
 .onboarding__actions {
   display: flex;
   justify-content: flex-end;
-  gap: 8px;
+  gap: var(--space-sm);
   margin-top: 16px;
 }
 .onboarding__step-desc {
   margin: 0 0 16px 0;
-  color: #52525b;
+  color: var(--text-secondary);
   font-size: 14px;
 }
-.onboarding__presets {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
+.onboarding__presets { display: flex; flex-direction: column; gap: var(--space-sm); }
 .onboarding__preset-item {
   display: flex;
   align-items: center;
   gap: 12px;
   padding: 12px 16px;
-  border: 1px solid #e4e4e7;
-  border-radius: 6px;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
   cursor: pointer;
-  transition: all 0.15s;
+  transition: var(--transition);
 }
-.onboarding__preset-item:hover {
-  border-color: #a1a1aa;
-}
+.onboarding__preset-item:hover { border-color: var(--brand-primary-light); }
 .onboarding__preset-item--active {
-  border-color: #3b82f6;
-  background: #eff6ff;
+  border-color: var(--brand-primary);
+  background: rgba(99, 102, 241, 0.05);
 }
-.onboarding__preset-name {
-  font-weight: 600;
-  font-size: 14px;
-}
-.onboarding__preset-path {
-  color: #a1a1aa;
-  font-size: 12px;
-  margin-left: auto;
-}
+.onboarding__preset-name { font-weight: 600; font-size: 14px; }
+.onboarding__preset-path { color: var(--text-tertiary); font-size: 12px; margin-left: auto; }
 
-/* 导入策略 */
-.onboarding__strategy {
-  margin-top: 20px;
-  padding-top: 16px;
-  border-top: 1px solid #e4e4e7;
-}
-.onboarding__strategy-title {
-  font-weight: 600;
-  font-size: 14px;
-  margin-bottom: 4px;
-}
-.onboarding__strategy-desc {
-  font-size: 12px;
-  color: #71717a;
-  margin-bottom: 12px;
-}
-.onboarding__strategy-group {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
+.onboarding__strategy { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--border-light); }
+.onboarding__strategy-title { font-weight: 600; font-size: 14px; margin-bottom: 4px; }
+.onboarding__strategy-desc { font-size: 12px; color: var(--text-tertiary); margin-bottom: 12px; }
+.onboarding__strategy-group { display: flex; flex-direction: column; gap: var(--space-sm); }
 .onboarding__strategy-item {
   padding: 8px 12px;
-  border: 1px solid #e4e4e7;
-  border-radius: 6px;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
 }
-.onboarding__strategy-item-desc {
-  font-size: 12px;
-  color: #71717a;
-  margin-top: 4px;
-  padding-left: 24px;
-}
+.onboarding__strategy-item-desc { font-size: 12px; color: var(--text-tertiary); margin-top: 4px; padding-left: 24px; }
 
-/* 步骤 3 状态 */
-.onboarding__loading {
-  text-align: center;
-  padding: 40px 0;
-}
-.onboarding__loading-text {
-  margin-top: 16px;
-  font-size: 15px;
-  color: #52525b;
-}
-.onboarding__loading-hint {
-  margin-top: 4px;
-  font-size: 12px;
-  color: #a1a1aa;
-}
-.onboarding__error-title {
-  text-align: center;
-  font-size: 18px;
-  color: #ef4444;
-  margin: 16px 0;
-}
-.onboarding__success {
-  text-align: center;
-  font-size: 18px;
-  color: #22c55e;
-  margin: 16px 0;
-}
-.onboarding__success-block {
-  padding: 8px 0;
-}
-.onboarding__imported {
-  margin: 16px 0;
-}
+.onboarding__loading { text-align: center; padding: 40px 0; }
+.onboarding__loading-text { margin-top: 16px; font-size: 15px; color: var(--text-secondary); }
+.onboarding__loading-hint { margin-top: 4px; font-size: 12px; color: var(--text-tertiary); }
+.onboarding__error-title { text-align: center; font-size: 18px; color: var(--color-error); margin: 16px 0; }
+.onboarding__success { text-align: center; font-size: 18px; color: var(--color-success); margin: 16px 0; }
+.onboarding__success-block { padding: 8px 0; }
+.onboarding__imported { margin: 16px 0; }
 .onboarding__imported-item {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 8px 12px;
-  border-bottom: 1px solid #e4e4e7;
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 8px 12px; border-bottom: 1px solid var(--border-light);
 }
-.onboarding__imported-name {
-  font-weight: 500;
-}
-.onboarding__imported-empty {
-  text-align: center;
-  color: #a1a1aa;
-  font-size: 13px;
-  margin: 16px 0;
-}
-.onboarding__unknown {
-  text-align: center;
-  padding: 20px;
-}
+.onboarding__imported-name { font-weight: 500; }
+.onboarding__imported-empty { text-align: center; color: var(--text-tertiary); font-size: 13px; margin: 16px 0; }
+.onboarding__unknown { text-align: center; padding: 20px; }
 </style>

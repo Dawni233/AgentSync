@@ -19,7 +19,6 @@ function onTabChange(name: string) {
   router.push({ name })
 }
 
-// onboarding 状态：null=检查中，true=已初始化，false=需 onboarding
 const initialized = ref<boolean | null>(null)
 
 onMounted(async () => {
@@ -27,7 +26,6 @@ onMounted(async () => {
     initialized.value = await invoke<boolean>('is_repo_initialized')
   } catch (e) {
     console.error('检查初始化状态失败:', e)
-    // 检查失败时假设未初始化，让用户走 onboarding
     initialized.value = false
   }
 })
@@ -41,27 +39,30 @@ function onOnboardingCompleted() {
   <n-config-provider>
     <n-message-provider>
       <n-dialog-provider>
-        <!-- 检查中 -->
         <div v-if="initialized === null" class="app__loading">
-          <span>检查初始化状态...</span>
+          <div class="app__loading-spinner" />
         </div>
 
-        <!-- 未初始化：显示 Onboarding 向导 -->
         <Onboarding
           v-else-if="initialized === false"
           @completed="onOnboardingCompleted"
         />
 
-        <!-- 已初始化：显示主界面 -->
         <div v-else class="app">
           <header class="app__header">
             <div class="app__brand">
-              <span class="app__logo">AgentSync</span>
-              <span class="app__version">v0.1.0</span>
+              <div class="app__logo-icon">
+                <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+                  <path d="M10 2L3 6v8l7 4 7-4V6l-7-4z" stroke="white" stroke-width="1.5" stroke-linejoin="round"/>
+                  <path d="M10 2v16M3 6l7 4 7-4M3 14l7-4 7 4" stroke="white" stroke-width="1.5" stroke-linejoin="round" opacity="0.6"/>
+                </svg>
+              </div>
+              <span class="app__logo-text">AgentSync</span>
             </div>
             <n-tabs
               :value="activeTab"
-              type="line"
+              type="segment"
+              size="small"
               @update:value="onTabChange"
               class="app__tabs"
             >
@@ -80,23 +81,17 @@ function onOnboardingCompleted() {
 </template>
 
 <style>
-html,
-body,
-#app {
+html, body, #app {
   margin: 0;
   padding: 0;
   height: 100%;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue',
-    Arial, 'PingFang SC', 'Microsoft YaHei', sans-serif;
-  background: #f5f5f5;
-  color: #18181c;
 }
 
 .app {
   display: flex;
   flex-direction: column;
   height: 100vh;
-  background: #fff;
+  background: var(--bg-app);
 }
 
 .app__loading {
@@ -104,33 +99,53 @@ body,
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #71717a;
+}
+.app__loading-spinner {
+  width: 32px;
+  height: 32px;
+  border: 3px solid var(--border-light);
+  border-top-color: var(--brand-primary);
+  border-radius: 50%;
+  animation: spin 0.6s linear infinite;
+}
+@keyframes spin {
+  to { transform: rotate(360deg); }
 }
 
 .app__header {
   display: flex;
   align-items: center;
-  padding: 0 16px;
-  border-bottom: 1px solid #e4e4e7;
-  background: #fff;
+  padding: 0 var(--space-lg);
+  height: 56px;
+  background: var(--bg-card);
+  border-bottom: 1px solid var(--border-light);
+  box-shadow: var(--shadow-sm);
+  flex-shrink: 0;
 }
 
 .app__brand {
   display: flex;
-  align-items: baseline;
-  gap: 8px;
-  margin-right: 32px;
+  align-items: center;
+  gap: 10px;
+  margin-right: var(--space-xl);
 }
 
-.app__logo {
-  font-weight: 600;
+.app__logo-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-sm);
+  background: var(--brand-gradient);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 8px rgba(99, 102, 241, 0.3);
+}
+
+.app__logo-text {
   font-size: 16px;
-  color: #18181c;
-}
-
-.app__version {
-  font-size: 11px;
-  color: #a1a1aa;
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: -0.3px;
 }
 
 .app__tabs {
@@ -140,20 +155,5 @@ body,
 .app__main {
   flex: 1;
   overflow: hidden;
-}
-
-::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
-}
-::-webkit-scrollbar-track {
-  background: transparent;
-}
-::-webkit-scrollbar-thumb {
-  background: #d4d4d8;
-  border-radius: 4px;
-}
-::-webkit-scrollbar-thumb:hover {
-  background: #a1a1aa;
 }
 </style>
