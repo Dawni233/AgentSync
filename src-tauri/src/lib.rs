@@ -149,11 +149,11 @@ fn get_agents(state: tauri::State<'_, AppState>) -> Result<Vec<Agent>, String> {
         } else {
             0
         };
-        // 读取运行时状态
-        let (status_str, last_sync_at) = state
+        // 读取运行时状态（含 current_persona）
+        let (status_str, last_sync_at, current_persona) = state
             .db
             .get_agent_status(&c.id)
-            .unwrap_or(("idle".to_string(), None));
+            .unwrap_or(("idle".to_string(), None, None));
         let sync_status = match status_str.as_str() {
             "syncing" => SyncStatus::Syncing,
             "pending" => SyncStatus::Pending,
@@ -163,7 +163,7 @@ fn get_agents(state: tauri::State<'_, AppState>) -> Result<Vec<Agent>, String> {
         };
         agents.push(Agent {
             config: c,
-            current_persona: None,
+            current_persona,
             sync_status,
             last_sync_at,
             tracked_file_count: file_count,
@@ -456,6 +456,12 @@ async fn sync_all(
                         "sync:completed",
                         serde_json::json!({ "result": &result }),
                     );
+                    if result.status == types::SyncResultStatus::Success {
+                        let now = chrono::Utc::now().timestamp_millis();
+                        let _ = state
+                            .db
+                            .update_sync_status(&config.id, &SyncStatus::Idle, Some(now));
+                    }
                 }
                 sync_engine::cleanup_tmp(&state.app_data_dir, &config.id)
                     .map_err(|e| e.to_string())?;
@@ -586,7 +592,12 @@ fn switch_personality(
         &config.exclude_files,
         &settings.pat_token,
     )
-    .map_err(|e| e.to_string())
+    .map_err(|e| e.to_string())?;
+    state
+        .db
+        .update_current_persona(&agent_id, Some(&name))
+        .map_err(|e| e.to_string())?;
+    Ok(())
 }
 
 /// 删除人格
@@ -598,7 +609,19 @@ fn delete_personality(
 ) -> Result<(), String> {
     let settings = state.db.get_settings().map_err(|e| e.to_string())?;
     persona::delete_personality(&state.repo_path, &agent_id, &name, &settings.pat_token)
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+    // 删除的若是当前激活人格，清空 current_persona 避免残留指向
+    let (_, _, current_persona) = state
+        .db
+        .get_agent_status(&agent_id)
+        .unwrap_or(("idle".to_string(), None, None));
+    if current_persona.as_deref() == Some(name.as_str()) {
+        state
+            .db
+            .update_current_persona(&agent_id, None)
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
 }
 
 /// 导出人格包

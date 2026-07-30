@@ -143,6 +143,7 @@ async function loadTrackedFiles(agentId: string) {
 async function onSyncAll() {
   try {
     await syncStore.syncAll()
+    await agentsStore.loadAgents()
     toast('已同步 · 全部')
   } catch (e) {
     toast(`同步失败: ${e}`)

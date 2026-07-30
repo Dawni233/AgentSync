@@ -125,21 +125,27 @@ impl Database {
         Ok(agents)
     }
 
-    /// 获取 agent 的运行时状态（sync_status + last_sync_at）
-    pub fn get_agent_status(&self, agent_id: &str) -> AppResult<(String, Option<i64>)> {
+    /// 获取 agent 的运行时状态（sync_status + last_sync_at + current_persona）
+    pub fn get_agent_status(
+        &self,
+        agent_id: &str,
+    ) -> AppResult<(String, Option<i64>, Option<String>)> {
         let conn = self.conn.lock().map_err(|e| AppError::Db(e.to_string()))?;
         let result = conn.query_row(
-            "SELECT sync_status, last_sync_at FROM agent_cache WHERE id = ?",
+            "SELECT sync_status, last_sync_at, current_persona FROM agent_cache WHERE id = ?",
             rusqlite::params![agent_id],
             |row| {
                 let status: String = row.get(0)?;
                 let last_sync: Option<i64> = row.get(1).ok();
-                Ok((status, last_sync))
+                let current_persona: Option<String> = row.get(2).ok();
+                Ok((status, last_sync, current_persona))
             },
         );
         match result {
             Ok(s) => Ok(s),
-            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(("idle".to_string(), None)),
+            Err(rusqlite::Error::QueryReturnedNoRows) => {
+                Ok(("idle".to_string(), None, None))
+            }
             Err(e) => Err(e.into()),
         }
     }
@@ -187,6 +193,20 @@ impl Database {
         conn.execute(
             "UPDATE agent_cache SET sync_status = ?, last_sync_at = ? WHERE id = ?",
             params![status_str, last_sync_at, agent_id],
+        )?;
+        Ok(())
+    }
+
+    /// 更新 agent 当前激活的人格（切换/删除人格时调用）
+    pub fn update_current_persona(
+        &self,
+        agent_id: &str,
+        persona: Option<&str>,
+    ) -> AppResult<()> {
+        let conn = self.conn.lock().map_err(|e| AppError::Db(e.to_string()))?;
+        conn.execute(
+            "UPDATE agent_cache SET current_persona = ? WHERE id = ?",
+            params![persona, agent_id],
         )?;
         Ok(())
     }

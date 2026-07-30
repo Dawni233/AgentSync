@@ -34,3 +34,6 @@ npm-debug.log*
 
 # 设计稿 / 迁移文档（本地参考，不上传）
 design/
+
+# ZCode 本地会话数据
+.zcode/
