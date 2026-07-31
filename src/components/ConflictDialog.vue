@@ -110,8 +110,9 @@ function cancel() {
 
 <style scoped>
 .opt--disabled {
-  opacity: 0.45;
+  opacity: 0.5;
   cursor: not-allowed;
+  pointer-events: none;
 }
 .opt--disabled .opt__radio {
   background: var(--surface-2);
