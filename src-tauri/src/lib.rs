@@ -575,7 +575,7 @@ async fn read_persona_file(
         persona::read_persona_file(&repo_path, &config, &persona_name, &file_path)
     })
     .await
-    .map_err(|e| e.to_string())?
+    .map_err(|e| format!("后台任务失败: {}", e))?
     .map_err(|e| e.to_string())
 }
 
