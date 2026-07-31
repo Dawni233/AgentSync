@@ -12,7 +12,7 @@
 use crate::error::{AppError, AppResult};
 use crate::file_mapper;
 use crate::git_sync;
-use crate::types::Persona;
+use crate::types::{Persona, PersonaFileContent, AgentConfig};
 use std::fs;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
@@ -59,6 +59,65 @@ pub fn list_personalities(repo_path: &Path, agent_id: &str) -> AppResult<Vec<Per
 
     personas.sort_by(|a, b| a.name.cmp(&b.name));
     Ok(personas)
+}
+
+/// 读取人格文件内容及其对应的本地文件内容
+///
+/// 用于 Personalities 视图文件预览。`file_path` 为相对 agent 目录的路径
+/// （如 "SOUL.md"、"memory/chat.md"），人格目录与本地 config_dir 同构，
+/// 直接 join 相对路径即可定位本地文件。
+///
+/// - 二进制文件（含 0x00 字节）：`is_binary=true`，两 content 均为 None
+/// - 任一文件不存在/编码异常：对应 content 为 None，不影响另一个
+/// - 路径含 `..`：返回 Err（防目录穿越）
+pub fn read_persona_file(
+    repo_path: &Path,
+    agent_config: &AgentConfig,
+    persona_name: &str,
+    file_path: &str,
+) -> AppResult<PersonaFileContent> {
+    // 路径安全：拒绝含 .. 的路径（防目录穿越）
+    if file_path.split('/').any(|c| c == "..") || file_path.split('\\').any(|c| c == "..") {
+        return Err(AppError::Config(format!(
+            "非法文件路径 '{}': 含 .. 组件",
+            file_path
+        )));
+    }
+
+    let persona_path = repo_path
+        .join(&agent_config.id)
+        .join(persona_name)
+        .join(file_path);
+    let local_dir = file_mapper::expand_tilde(&agent_config.config_dir)?;
+    let local_path = PathBuf::from(&local_dir).join(file_path);
+
+    // 读取并检测二进制
+    let read_text = |path: &Path| -> Option<String> {
+        let bytes = fs::read(path).ok()?;
+        if bytes.contains(&0u8) {
+            return None; // 二进制
+        }
+        String::from_utf8(bytes).ok()
+    };
+
+    // 先读 bytes 判断二进制（任一为二进制则整体标记）
+    let persona_bytes = fs::read(&persona_path).unwrap_or_default();
+    let local_bytes = fs::read(&local_path).unwrap_or_default();
+    let is_binary = persona_bytes.contains(&0u8) || local_bytes.contains(&0u8);
+
+    if is_binary {
+        return Ok(PersonaFileContent {
+            persona_content: None,
+            local_content: None,
+            is_binary: true,
+        });
+    }
+
+    Ok(PersonaFileContent {
+        persona_content: read_text(&persona_path),
+        local_content: read_text(&local_path),
+        is_binary: false,
+    })
 }
 
 /// 1. 保存当前为人格
@@ -470,4 +529,144 @@ pub struct PersonaDiffPreview {
 pub struct FileDiff {
     pub path: String,
     pub action: String, // added / modified / unchanged
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::AgentConfig;
+    use tempfile::TempDir;
+
+    fn make_config(config_dir: &str) -> AgentConfig {
+        AgentConfig {
+            id: "test-agent".into(),
+            display_name: "Test".into(),
+            config_dir: config_dir.into(),
+            sync_files: vec!["SOUL.md".into(), "memory/**".into()],
+            exclude_files: vec![],
+            accent_color: Some("#5B4FE9".into()),
+        }
+    }
+
+    fn write_file(base: &Path, rel: &str, content: &str) {
+        let path = base.join(rel);
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).unwrap();
+        }
+        std::fs::write(path, content).unwrap();
+    }
+
+    #[test]
+    fn read_persona_file_both_exist() {
+        let repo = TempDir::new().unwrap();
+        let local = TempDir::new().unwrap();
+        // 仓库结构: repo/test-agent/work-mode/SOUL.md
+        let persona_dir = repo.path().join("test-agent").join("work-mode");
+        std::fs::create_dir_all(&persona_dir).unwrap();
+        write_file(repo.path(), "test-agent/work-mode/SOUL.md", "persona version");
+
+        // 本地结构: local/SOUL.md
+        write_file(local.path(), "SOUL.md", "local version");
+
+        let config = make_config(local.path().to_str().unwrap());
+        let result = read_persona_file(
+            repo.path(),
+            &config,
+            "work-mode",
+            "SOUL.md",
+        )
+        .unwrap();
+
+        assert!(!result.is_binary);
+        assert_eq!(result.persona_content.as_deref(), Some("persona version"));
+        assert_eq!(result.local_content.as_deref(), Some("local version"));
+    }
+
+    #[test]
+    fn read_persona_file_local_missing() {
+        let repo = TempDir::new().unwrap();
+        let local = TempDir::new().unwrap();
+        let persona_dir = repo.path().join("test-agent").join("work-mode");
+        std::fs::create_dir_all(&persona_dir).unwrap();
+        write_file(repo.path(), "test-agent/work-mode/SOUL.md", "only in persona");
+
+        let config = make_config(local.path().to_str().unwrap());
+        let result = read_persona_file(
+            repo.path(),
+            &config,
+            "work-mode",
+            "SOUL.md",
+        )
+        .unwrap();
+
+        assert!(!result.is_binary);
+        assert_eq!(result.persona_content.as_deref(), Some("only in persona"));
+        assert_eq!(result.local_content, None);
+    }
+
+    #[test]
+    fn read_persona_file_binary_detected() {
+        let repo = TempDir::new().unwrap();
+        let local = TempDir::new().unwrap();
+        let persona_dir = repo.path().join("test-agent").join("work-mode");
+        std::fs::create_dir_all(&persona_dir).unwrap();
+        // 写入含 0x00 字节的二进制内容
+        std::fs::write(
+            repo.path().join("test-agent/work-mode/blob.bin"),
+            [0x42, 0x00, 0x43],
+        )
+        .unwrap();
+
+        let config = make_config(local.path().to_str().unwrap());
+        let result = read_persona_file(
+            repo.path(),
+            &config,
+            "work-mode",
+            "blob.bin",
+        )
+        .unwrap();
+
+        assert!(result.is_binary);
+        assert_eq!(result.persona_content, None);
+        assert_eq!(result.local_content, None);
+    }
+
+    #[test]
+    fn read_persona_file_rejects_path_traversal() {
+        let repo = TempDir::new().unwrap();
+        let local = TempDir::new().unwrap();
+        let config = make_config(local.path().to_str().unwrap());
+
+        let result = read_persona_file(
+            repo.path(),
+            &config,
+            "work-mode",
+            "../../../etc/passwd",
+        );
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn read_persona_file_persona_missing() {
+        let repo = TempDir::new().unwrap();
+        let local = TempDir::new().unwrap();
+        let persona_dir = repo.path().join("test-agent").join("work-mode");
+        std::fs::create_dir_all(&persona_dir).unwrap();
+        // 人格目录存在但文件不存在；本地有文件
+        write_file(local.path(), "SOUL.md", "local only");
+
+        let config = make_config(local.path().to_str().unwrap());
+        let result = read_persona_file(
+            repo.path(),
+            &config,
+            "work-mode",
+            "SOUL.md",
+        )
+        .unwrap();
+
+        assert!(!result.is_binary);
+        assert_eq!(result.persona_content, None);
+        assert_eq!(result.local_content.as_deref(), Some("local only"));
+    }
 }
