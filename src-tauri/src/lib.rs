@@ -17,7 +17,7 @@ use tauri_plugin_autostart::{MacosLauncher, ManagerExt};
 use auto_sync::AutoSyncManager;
 use db::Database;
 use sync_engine::{ConflictResolution, SyncContext, SyncEngine};
-use types::{Agent, AgentConfig, Persona, Settings, SyncResult, SyncStatus};
+use types::{Agent, AgentConfig, Persona, PersonaFileContent, Settings, SyncResult, SyncStatus};
 
 /// 应用全局状态
 struct AppState {
@@ -555,6 +555,30 @@ fn list_personalities(state: tauri::State<'_, AppState>, agent_id: String) -> Re
     persona::list_personalities(&state.repo_path, &agent_id).map_err(|e| e.to_string())
 }
 
+/// 读取人格文件内容及其对应的本地文件内容（用于 Personalities 视图预览）
+#[tauri::command]
+async fn read_persona_file(
+    state: tauri::State<'_, AppState>,
+    agent_id: String,
+    persona_name: String,
+    file_path: String,
+) -> Result<PersonaFileContent, String> {
+    let config = state
+        .db
+        .list_agents()
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .find(|c| c.id == agent_id)
+        .ok_or_else(|| format!("agent '{}' 未注册", agent_id))?;
+    let repo_path = state.repo_path.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        persona::read_persona_file(&repo_path, &config, &persona_name, &file_path)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())
+}
+
 /// 保存当前为人格
 #[tauri::command]
 fn save_personality(
@@ -856,6 +880,7 @@ pub fn run() {
             resolve_conflict,
             // 人格管理
             list_personalities,
+            read_persona_file,
             save_personality,
             switch_personality,
             delete_personality,
