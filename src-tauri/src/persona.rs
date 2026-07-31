@@ -12,7 +12,7 @@
 use crate::error::{AppError, AppResult};
 use crate::file_mapper;
 use crate::git_sync;
-use crate::types::{Persona, PersonaFileContent, AgentConfig};
+use crate::types::{AgentConfig, Persona, PersonaFileContent};
 use std::fs;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
@@ -642,6 +642,22 @@ mod tests {
             &config,
             "work-mode",
             "../../../etc/passwd",
+        );
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn read_persona_file_rejects_backslash_traversal() {
+        let repo = TempDir::new().unwrap();
+        let local = TempDir::new().unwrap();
+        let config = make_config(local.path().to_str().unwrap());
+
+        let result = read_persona_file(
+            repo.path(),
+            &config,
+            "work-mode",
+            "..\\..\\..\\etc\\passwd",
         );
 
         assert!(result.is_err());
