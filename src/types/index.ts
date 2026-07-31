@@ -95,6 +95,16 @@ export interface Persona {
   importedAt?: number
 }
 
+/** 人格文件预览内容（read_persona_file 返回值） */
+export interface PersonaFileContent {
+  /** 人格快照中的文件内容；不存在/编码异常/二进制时为 null */
+  personaContent: string | null
+  /** 本地配置目录对应文件内容；不存在/编码异常/二进制时为 null */
+  localContent: string | null
+  /** 是否二进制文件（含 0x00 字节） */
+  isBinary: boolean
+}
+
 /* ------------------------------------------------------------------ */
 /* 事件 payload                                                        */
 /* ------------------------------------------------------------------ */
