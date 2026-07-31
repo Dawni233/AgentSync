@@ -3,7 +3,9 @@ import { ref, computed, onMounted } from 'vue'
 import { useAgentsStore } from '@/stores/agents'
 import { usePersonalities, type PersonaDiffPreview } from '@/composables/usePersonalities'
 import { showToast } from '@/composables/useToast'
-import type { Persona } from '@/types'
+import { invoke } from '@tauri-apps/api/core'
+import { lineDiff, type DiffLine } from '@/utils/diff'
+import type { Persona, PersonaFileContent } from '@/types'
 
 const agentsStore = useAgentsStore()
 const toast = showToast
@@ -25,6 +27,9 @@ const selected = ref<{ agentId: string; name: string } | null>(null)
 const selectedPersona = ref<Persona | null>(null)
 const selFile = ref<string | null>(null)
 const selMode = ref<'render' | 'source' | 'diff'>('render')
+
+const fileContent = ref<PersonaFileContent | null>(null)
+const loadingFile = ref(false)
 
 const collapsedFiles = ref<Set<string>>(new Set())
 
@@ -107,41 +112,6 @@ const fileTreeHtml = computed(() => {
   return renderTree(buildTree(selectedPersona.value.files), 0)
 })
 
-function sampleContent(file: string): string[] {
-  if (/\.json$/i.test(file)) {
-    return [
-      '{',
-      '  "model": "claude-opus-4",',
-      '  "temperature": 0.7,',
-      '  "tools": ["read_file", "edit_file", "run_cmd"],',
-      '  "persona": "work-mode"',
-      '}'
-    ]
-  }
-  if (/SOUL\.md$|\.md$/i.test(file)) {
-    return [
-      '# SOUL.md',
-      '',
-      '你是 **WorkBuddy**，一个专注的 AI 工程助手。',
-      '',
-      '## 原则',
-      '- 先理解，再动手',
-      '- 用最少代码解决问题',
-      '',
-      '> 简洁优先，拒绝冗余。'
-    ]
-  }
-  return [
-    '# ' + file.split('/').pop(),
-    '',
-    '// 演示内容（真实文件读取待后端接口接入）',
-    'export const config = {',
-    '  sync: true,',
-    '  retry: 3',
-    '}'
-  ]
-}
-
 function highlight(file: string, line: string): string {
   const e = esc(line)
   if (/\.json$/i.test(file)) {
@@ -188,35 +158,73 @@ function renderDoc(lines: string[]): string {
   return html
 }
 
-function renderDiff(file: string): string {
-  const lines = sampleContent(file)
-  let html = `<div class="diff__h">@@ -1,${lines.length} +1,${lines.length} @@ ${esc(file)}</div>`
-  lines.forEach((l, i) => {
-    const sign = i % 3 === 0 ? '-' : '+'
-    const cls = sign === '-' ? 'diff__del' : 'diff__add'
-    html += `<div class="diff__row ${cls}"><span class="diff__sign">${sign}</span><span>${esc(l)}</span></div>`
-  })
+function renderDiff(): string {
+  const fc = fileContent.value
+  if (!fc || fc.isBinary) {
+    return '<div class="empty"><div class="empty__icon">⛔</div><div class="empty__title">二进制文件无法 diff</div></div>'
+  }
+  const persona = fc.personaContent ?? ''
+  const local = fc.localContent ?? ''
+  if (!persona && !local) {
+    return '<div class="empty"><div class="empty__icon">📄</div><div class="empty__title">文件内容为空</div></div>'
+  }
+  if (!persona) {
+    return '<div class="diff__h">本地新增文件</div>'
+  }
+  const diff: DiffLine[] = lineDiff(persona, local)
+  if (!fc.localContent) {
+    return '<div class="diff__h">本地无此文件（人格独有）</div>'
+  }
+  let html = `<div class="diff__h">@@ 行差异 · ${diff.length} 行 @@</div>`
+  for (const d of diff) {
+    const sign = d.type === 'add' ? '+' : d.type === 'del' ? '-' : ' '
+    const cls = d.type === 'add' ? 'diff__add' : d.type === 'del' ? 'diff__del' : ''
+    html += `<div class="diff__row ${cls}"><span class="diff__sign">${sign}</span><span class="diff__txt">${esc(d.text)}</span></div>`
+  }
   return html
 }
 
 const previewHtml = computed(() => {
+  if (loadingFile.value) {
+    return '<div class="empty"><div class="empty__icon">⏳</div><div class="empty__title">加载中…</div></div>'
+  }
   if (!selectedPersona.value || !selFile.value) {
     return '<div class="empty"><div class="empty__icon">📄</div><div class="empty__title">选择文件预览</div></div>'
   }
+  const fc = fileContent.value
+  if (!fc) {
+    return '<div class="empty"><div class="empty__icon">📄</div><div class="empty__title">无内容</div></div>'
+  }
+  if (fc.isBinary) {
+    return '<div class="empty"><div class="empty__icon">⛔</div><div class="empty__title">二进制文件无法预览</div><div>请选择其他文件</div></div>'
+  }
   const file = selFile.value
+
+  // diff Tab
+  if (selMode.value === 'diff') {
+    return `<div class="diff">${renderDiff()}</div>`
+  }
+
+  // 内容取 persona 优先，fallback local
+  const content = fc.personaContent ?? fc.localContent ?? ''
+  const isMd = /\.md$/i.test(file)
+
+  // source Tab：纯文本带行号
   if (selMode.value === 'source') {
-    const lines = sampleContent(file)
+    if (!content) {
+      return '<div class="empty"><div class="empty__icon">📄</div><div class="empty__title">文件内容为空</div></div>'
+    }
+    const lines = content.split('\n')
     return `<div class="code">${lines
       .map((l, i) => `<div><span class="ln">${i + 1}</span>${highlight(file, l)}</div>`)
       .join('')}</div>`
   }
-  if (selMode.value === 'diff') {
-    return `<div class="diff">${renderDiff(file)}</div>`
+
+  // render Tab：仅 md 渲染
+  if (isMd) {
+    return `<div class="doc">${renderDoc(content.split('\n'))}</div>`
   }
-  if (/\.md$/i.test(file)) {
-    return `<div class="doc">${renderDoc(sampleContent(file))}</div>`
-  }
-  return '<div class="empty"><div class="empty__icon">📄</div><div class="empty__title">无渲染视图</div><div>该文件类型暂不支持渲染，请切换到「源码」查看</div></div>'
+  return '<div class="empty"><div class="empty__icon">📄</div><div class="empty__title">无渲染视图</div><div>该文件类型暂不支持渲染，请切换到「源码」</div></div>'
 })
 
 // ---------- 交互 ----------
@@ -232,10 +240,32 @@ function selectPersona(agentId: string, name: string) {
   const p = (grouped.value[agentId] || []).find((x) => x.name === name) || null
   selectedPersona.value = p
   selFile.value = p && p.files.length ? p.files[0] : null
+  loadFileContent()
 }
 
 function selectFile(file: string) {
   selFile.value = file
+  loadFileContent()
+}
+
+async function loadFileContent() {
+  if (!selected.value || !selFile.value) {
+    fileContent.value = null
+    return
+  }
+  loadingFile.value = true
+  try {
+    fileContent.value = await invoke<PersonaFileContent>('read_persona_file', {
+      agentId: selected.value.agentId,
+      personaName: selected.value.name,
+      filePath: selFile.value,
+    })
+  } catch (e) {
+    fileContent.value = null
+    showToast(`读取文件失败: ${e}`)
+  } finally {
+    loadingFile.value = false
+  }
 }
 
 function onFileTreeClick(e: MouseEvent) {
