@@ -171,10 +171,10 @@ function renderDiff(): string {
   if (!persona) {
     return '<div class="diff__h">本地新增文件</div>'
   }
-  const diff: DiffLine[] = lineDiff(persona, local)
   if (!fc.localContent) {
     return '<div class="diff__h">本地无此文件（人格独有）</div>'
   }
+  const diff: DiffLine[] = lineDiff(persona, local)
   let html = `<div class="diff__h">@@ 行差异 · ${diff.length} 行 @@</div>`
   for (const d of diff) {
     const sign = d.type === 'add' ? '+' : d.type === 'del' ? '-' : ' '
