@@ -91,11 +91,11 @@ function cancel() {
                 <div class="opt__d">用远程 _current/ 覆盖本地配置目录</div>
               </div>
             </div>
-            <div class="opt" @click="resolve('L2ManualMerge')">
+            <div class="opt opt--disabled" aria-disabled="true">
               <div class="opt__radio" />
               <div>
                 <div class="opt__t">手动合并</div>
-                <div class="opt__d">打开内置编辑器，逐文件合并（Phase 4 实现）</div>
+                <div class="opt__d">手动合并编辑器（开发中，暂不可用）</div>
               </div>
             </div>
           </template>
@@ -107,3 +107,13 @@ function cancel() {
     </div>
   </div>
 </template>
+
+<style scoped>
+.opt--disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.opt--disabled .opt__radio {
+  background: var(--surface-2);
+}
+</style>
