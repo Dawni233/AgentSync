@@ -150,3 +150,18 @@ pub struct Persona {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub imported_at: Option<i64>,
 }
+
+/// 人格文件预览内容（read_persona_file 返回值）
+///
+/// 人格快照内容与本地配置目录对应文件内容配对返回，
+/// 供前端计算行级 diff。二进制文件两 content 均为 None。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PersonaFileContent {
+    /// 人格快照中的文件内容（UTF-8）；不存在/编码异常/二进制时为 None
+    pub persona_content: Option<String>,
+    /// 本地配置目录对应文件内容；不存在/编码异常/二进制时为 None
+    pub local_content: Option<String>,
+    /// 是否二进制文件（含 0x00 字节）
+    pub is_binary: bool,
+}
