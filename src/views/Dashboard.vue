@@ -127,19 +127,6 @@ async function onSyncAll() {
     toast(`同步失败: ${e}`)
   }
 }
-
-function simulateConflict() {
-  if (!activeAgent.value) {
-    toast('请先选择 Agent')
-    return
-  }
-  conflictPayload.value = {
-    agentId: activeAgent.value.id,
-    conflictType: 'L2',
-    files: [{ path: 'SOUL.md', localMtime: Date.now() - 60_000, remoteMtime: Date.now() }]
-  }
-  conflictShow.value = true
-}
 </script>
 
 <template>
@@ -193,7 +180,6 @@ function simulateConflict() {
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 0 1-9 9 9 9 0 0 1-8-5M3 12a9 9 0 0 1 9-9 9 9 0 0 1 8 5"/><path d="M21 4v4h-4M3 20v-4h4"/></svg>
             全部同步
           </button>
-          <button class="btn btn--quiet" @click="simulateConflict">模拟冲突</button>
         </div>
       </div>
 
