@@ -14,7 +14,6 @@ const {
   savePersonality,
   switchPersonality,
   deletePersonality,
-  exportPersonalities,
   previewImport,
   importPersonalities
 } = usePersonalities()
@@ -388,20 +387,7 @@ async function confirmSave() {
   }
 }
 
-// 导出 / 导入
-async function onExport() {
-  if (!selected.value) {
-    toast('请先选择 Agent')
-    return
-  }
-  try {
-    const path = await exportPersonalities(selected.value.agentId, (grouped.value[selected.value.agentId] || []).map((p) => p.name))
-    if (path) toast(`已导出到 ${path}`)
-  } catch (e) {
-    toast(`导出失败: ${e}`)
-  }
-}
-
+// 导入
 const importDialogShow = ref(false)
 const importPreviews = ref<PersonaDiffPreview[]>([])
 const importZipPath = ref('')
@@ -540,7 +526,6 @@ onMounted(async () => {
             <button class="btn btn--primary" @click="onSwitch(selectedPersona.name)">切换</button>
             <button class="btn btn--danger" @click="onDelete(selectedPersona.name)">删除</button>
             <button class="btn btn--ghost" @click="openSaveDialog">保存当前</button>
-            <button class="btn btn--quiet" @click="onExport">导出</button>
           </div>
         </div>
 
