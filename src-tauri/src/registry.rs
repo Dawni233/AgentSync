@@ -193,6 +193,7 @@ fn default_presets() -> Vec<AgentConfig> {
                 "SOUL.md".into(),
                 "IDENTITY.md".into(),
                 "USER.md".into(),
+                "MEMORY.md".into(),
                 "memory/**".into(),
             ],
             exclude_files: vec![

@@ -122,6 +122,16 @@ function highlight(file: string, line: string): string {
   return e
 }
 
+/** 行内 markdown 格式：code 优先（避免内部 * 被误吞），再 bold，再 italic */
+function inline(s: string): string {
+  let e = esc(s)
+  e = e.replace(/`([^`]+)`/g, '<code>$1</code>')
+  e = e.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+  e = e.replace(/(^|[^*])\*([^*]+)\*/g, '$1<em>$2</em>')
+  e = e.replace(/_([^_]+)_/g, '<em>$1</em>')
+  return e
+}
+
 function renderDoc(lines: string[]): string {
   let html = ''
   let inList = false
@@ -134,31 +144,57 @@ function renderDoc(lines: string[]): string {
   for (const raw of lines) {
     if (/^## /.test(raw)) {
       closeList()
-      html += `<h2>${esc(raw.slice(3))}</h2>`
+      html += `<h2>${inline(raw.slice(3))}</h2>`
     } else if (/^# /.test(raw)) {
       closeList()
-      html += `<h1>${esc(raw.slice(2))}</h1>`
+      html += `<h1>${inline(raw.slice(2))}</h1>`
     } else if (/^> /.test(raw)) {
       closeList()
-      html += `<blockquote>${esc(raw.slice(2))}</blockquote>`
+      html += `<blockquote>${inline(raw.slice(2))}</blockquote>`
     } else if (/^- /.test(raw)) {
       if (!inList) {
         html += '<ul>'
         inList = true
       }
-      html += `<li>${esc(raw.slice(2))}</li>`
+      html += `<li>${inline(raw.slice(2))}</li>`
     } else if (raw.trim() === '') {
       closeList()
     } else {
       closeList()
-      html += `<p>${esc(raw)}</p>`
+      html += `<p>${inline(raw)}</p>`
     }
   }
   closeList()
   return html
 }
 
-function renderDiff(): string {
+/** source 模式纯文本渲染（带行号 + 高亮），供 renderPane 和 diff 边界场景复用 */
+function renderSourcePane(content: string, file: string): string {
+  if (!content) {
+    return '<div class="empty"><div class="empty__icon">📄</div><div class="empty__title">文件内容为空</div></div>'
+  }
+  const lines = content.split('\n')
+  return `<div class="code">${lines
+    .map((l, i) => `<div><span class="ln">${i + 1}</span>${highlight(file, l)}</div>`)
+    .join('')}</div>`
+}
+
+/** 渲染单侧内容（render 或 source 模式） */
+function renderPane(content: string | null, file: string, mode: 'render' | 'source'): string {
+  if (content == null) {
+    return '<div class="empty"><div class="empty__icon">📭</div><div class="empty__title">无此文件</div></div>'
+  }
+  if (mode === 'render') {
+    if (/\.md$/i.test(file)) {
+      return `<div class="doc">${renderDoc(content.split('\n'))}</div>`
+    }
+    return '<div class="empty"><div class="empty__icon">📄</div><div class="empty__title">无渲染视图</div><div>该文件类型暂不支持渲染，请切换到「源码」</div></div>'
+  }
+  return renderSourcePane(content, file)
+}
+
+/** diff 双栏：把扁平 DiffLine[] 拆成左右对齐行。left 显示 same+del，right 显示 same+add */
+function renderDiffPane(side: 'left' | 'right'): string {
   const fc = fileContent.value
   if (!fc || fc.isBinary) {
     return '<div class="empty"><div class="empty__icon">⛔</div><div class="empty__title">二进制文件无法 diff</div></div>'
@@ -169,22 +205,37 @@ function renderDiff(): string {
     return '<div class="empty"><div class="empty__icon">📄</div><div class="empty__title">文件内容为空</div></div>'
   }
   if (!persona) {
-    return '<div class="diff__h">本地新增文件</div>'
+    // 本地新增文件：左栏提示，右栏显示本地全部
+    return side === 'left'
+      ? '<div class="diff__h">本地新增文件</div>'
+      : renderSourcePane(local, selFile.value || '')
   }
   if (!fc.localContent) {
-    return '<div class="diff__h">本地无此文件（人格独有）</div>'
+    // 本地无此文件（人格独有）：右栏提示，左栏显示人格全部
+    return side === 'right'
+      ? '<div class="diff__h">本地无此文件（人格独有）</div>'
+      : renderSourcePane(persona, selFile.value || '')
   }
   const diff: DiffLine[] = lineDiff(persona, local)
   let html = `<div class="diff__h">@@ 行差异 · ${diff.length} 行 @@</div>`
   for (const d of diff) {
-    const sign = d.type === 'add' ? '+' : d.type === 'del' ? '-' : ' '
-    const cls = d.type === 'add' ? 'diff__add' : d.type === 'del' ? 'diff__del' : ''
-    html += `<div class="diff__row ${cls}"><span class="diff__sign">${sign}</span><span class="diff__txt">${esc(d.text)}</span></div>`
+    if (d.type === 'same') {
+      html += `<div class="diff__row"><span class="diff__sign"> </span><span class="diff__txt">${esc(d.text)}</span></div>`
+    } else if (d.type === 'del') {
+      html += side === 'left'
+        ? `<div class="diff__row diff__del"><span class="diff__sign">-</span><span class="diff__txt">${esc(d.text)}</span></div>`
+        : `<div class="diff__row diff__placeholder"></div>`
+    } else {
+      html += side === 'right'
+        ? `<div class="diff__row diff__add"><span class="diff__sign">+</span><span class="diff__txt">${esc(d.text)}</span></div>`
+        : `<div class="diff__row diff__placeholder"></div>`
+    }
   }
   return html
 }
 
-const previewHtml = computed(() => {
+/** 前置空态：loading / 未选 / 二进制 -- 两栏共用 */
+function paneEmptyState(): string | null {
   if (loadingFile.value) {
     return '<div class="empty"><div class="empty__icon">⏳</div><div class="empty__title">加载中…</div></div>'
   }
@@ -198,33 +249,25 @@ const previewHtml = computed(() => {
   if (fc.isBinary) {
     return '<div class="empty"><div class="empty__icon">⛔</div><div class="empty__title">二进制文件无法预览</div><div>请选择其他文件</div></div>'
   }
-  const file = selFile.value
+  return null
+}
 
-  // diff Tab
-  if (selMode.value === 'diff') {
-    return `<div class="diff">${renderDiff()}</div>`
-  }
+const leftPaneHtml = computed(() => {
+  const empty = paneEmptyState()
+  if (empty) return empty
+  const fc = fileContent.value!
+  const file = selFile.value!
+  if (selMode.value === 'diff') return renderDiffPane('left')
+  return renderPane(fc.personaContent, file, selMode.value === 'source' ? 'source' : 'render')
+})
 
-  // 内容取 persona 优先，fallback local
-  const content = fc.personaContent ?? fc.localContent ?? ''
-  const isMd = /\.md$/i.test(file)
-
-  // source Tab：纯文本带行号
-  if (selMode.value === 'source') {
-    if (!content) {
-      return '<div class="empty"><div class="empty__icon">📄</div><div class="empty__title">文件内容为空</div></div>'
-    }
-    const lines = content.split('\n')
-    return `<div class="code">${lines
-      .map((l, i) => `<div><span class="ln">${i + 1}</span>${highlight(file, l)}</div>`)
-      .join('')}</div>`
-  }
-
-  // render Tab：仅 md 渲染
-  if (isMd) {
-    return `<div class="doc">${renderDoc(content.split('\n'))}</div>`
-  }
-  return '<div class="empty"><div class="empty__icon">📄</div><div class="empty__title">无渲染视图</div><div>该文件类型暂不支持渲染，请切换到「源码」</div></div>'
+const rightPaneHtml = computed(() => {
+  const empty = paneEmptyState()
+  if (empty) return empty
+  const fc = fileContent.value!
+  const file = selFile.value!
+  if (selMode.value === 'diff') return renderDiffPane('right')
+  return renderPane(fc.localContent, file, selMode.value === 'source' ? 'source' : 'render')
 })
 
 // ---------- 交互 ----------
@@ -467,7 +510,7 @@ onMounted(async () => {
             >
               <span style="width:14px" />
               <span>{{ p.displayName }}</span>
-              <span v-if="p.isCurrent" class="agent__cur" style="margin-left:auto">激活</span>
+              <span v-if="p.isCurrent" class="agent__cur" style="margin-left:auto">当前</span>
             </div>
           </div>
         </div>
@@ -494,7 +537,7 @@ onMounted(async () => {
             </div>
           </div>
           <div class="pl__detail-acts">
-            <button class="btn btn--primary" @click="onSwitch(selectedPersona.name)">激活</button>
+            <button class="btn btn--primary" @click="onSwitch(selectedPersona.name)">切换</button>
             <button class="btn btn--danger" @click="onDelete(selectedPersona.name)">删除</button>
             <button class="btn btn--ghost" @click="openSaveDialog">保存当前</button>
             <button class="btn btn--quiet" @click="onExport">导出</button>
@@ -519,7 +562,16 @@ onMounted(async () => {
               </div>
               <span class="preview__hint">预览 · 只读</span>
             </div>
-            <div class="preview__canvas" v-html="previewHtml" />
+            <div class="preview__split">
+              <div class="preview__pane">
+                <div class="preview__pane-head">人格快照</div>
+                <div class="preview__pane-body" v-html="leftPaneHtml" />
+              </div>
+              <div class="preview__pane">
+                <div class="preview__pane-head">当前 · 本地</div>
+                <div class="preview__pane-body" v-html="rightPaneHtml" />
+              </div>
+            </div>
           </div>
         </div>
       </template>

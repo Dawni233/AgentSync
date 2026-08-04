@@ -24,6 +24,9 @@ let unlistenEvents: (() => void) | null = null
 onMounted(async () => {
   try {
     await agentsStore.loadAgents()
+    if (!activeAgent.value && agentsStore.agents.length > 0) {
+      await onSelectAgent(agentsStore.agents[0])
+    }
   } catch (e) {
     toast(`加载 agents 失败: ${e}`)
   }
@@ -44,14 +47,10 @@ async function onSelectAgent(agent: Agent) {
   await loadAgentPersonalities(agent.id)
 }
 
-// 人格切换 / 保存
-const { listPersonalities, savePersonality, switchPersonality } = usePersonalities()
+// 人格切换
+const { listPersonalities, switchPersonality } = usePersonalities()
 const agentPersonalities = ref<Persona[]>([])
-const showSwitchDialog = ref(false)
-const showSaveDialog = ref(false)
-const savePersonaName = ref('')
 const switching = ref(false)
-const saving = ref(false)
 
 async function loadAgentPersonalities(agentId: string) {
   try {
@@ -67,7 +66,6 @@ async function onSwitchPersona(name: string) {
   try {
     await switchPersonality(activeAgent.value.id, name)
     toast(`已切换到 ${name}`)
-    showSwitchDialog.value = false
     await agentsStore.loadAgents()
     const updated = agentsStore.agents.find((a) => a.id === activeAgent.value?.id)
     if (updated) activeAgent.value = updated
@@ -75,26 +73,6 @@ async function onSwitchPersona(name: string) {
     toast(`切换失败: ${e}`)
   } finally {
     switching.value = false
-  }
-}
-
-async function onSavePersona() {
-  if (!activeAgent.value) return
-  if (!savePersonaName.value.trim()) {
-    toast('请输入人格名称')
-    return
-  }
-  saving.value = true
-  try {
-    await savePersonality(activeAgent.value.id, savePersonaName.value.trim())
-    toast(`已保存人格 ${savePersonaName.value}`)
-    showSaveDialog.value = false
-    savePersonaName.value = ''
-    await loadAgentPersonalities(activeAgent.value.id)
-  } catch (e) {
-    toast(`保存失败: ${e}`)
-  } finally {
-    saving.value = false
   }
 }
 
@@ -233,10 +211,6 @@ function simulateConflict() {
                 <h3 class="summary__name">{{ activeAgent.displayName }}</h3>
                 <div class="summary__path">📁 {{ activeAgent.configDir }}</div>
               </div>
-              <div class="summary__acts">
-                <button class="btn btn--ghost" :disabled="switching" @click="showSwitchDialog = true">切换</button>
-                <button class="btn btn--ghost" @click="showSaveDialog = true">保存当前</button>
-              </div>
             </div>
             <div class="stat-row">
               <div class="stat">
@@ -266,13 +240,6 @@ function simulateConflict() {
                 @keydown.enter.prevent="onSwitchPersona(p.name)"
                 @keydown.space.prevent="onSwitchPersona(p.name)"
               >{{ p.name }}</span>
-              <span
-                class="chip chip--add"
-                role="button"
-                tabindex="0"
-                @click="showSaveDialog = true"
-                @keydown.enter.prevent="showSaveDialog = true"
-              >+ 保存当前</span>
             </div>
           </div>
 
@@ -302,43 +269,6 @@ function simulateConflict() {
         </template>
       </div>
     </section>
-
-    <!-- 切换人格弹窗 -->
-    <div v-if="showSwitchDialog" class="modal-mask" @click.self="showSwitchDialog = false">
-      <div class="modal">
-        <div class="modal__head"><h3 class="modal__title">切换人格</h3></div>
-        <div class="modal__body">
-          <div v-if="agentPersonalities.length === 0" class="empty"><span class="empty__title">暂无已保存的人格</span></div>
-          <div v-else class="opt-list">
-            <div v-for="p in agentPersonalities" :key="p.name" class="opt" @click="onSwitchPersona(p.name)">
-              <div class="opt__radio" />
-              <div>
-                <div class="opt__t">{{ p.displayName }}</div>
-                <div class="opt__d">{{ p.files.length }} 文件 · {{ Math.round(p.sizeBytes / 1024) }} KB</div>
-              </div>
-            </div>
-          </div>
-        </div>
-        <div class="modal__foot"><button class="btn btn--ghost" @click="showSwitchDialog = false">关闭</button></div>
-      </div>
-    </div>
-
-    <!-- 保存人格弹窗 -->
-    <div v-if="showSaveDialog" class="modal-mask" @click.self="showSaveDialog = false">
-      <div class="modal">
-        <div class="modal__head"><h3 class="modal__title">保存当前为人格</h3></div>
-        <div class="modal__body">
-          <div class="field">
-            <label class="field__label">人格名称</label>
-            <input v-model="savePersonaName" class="inp" placeholder="如 work-mode" @keydown.enter="onSavePersona" />
-          </div>
-        </div>
-        <div class="modal__foot">
-          <button class="btn btn--ghost" @click="showSaveDialog = false">取消</button>
-          <button class="btn btn--primary" :disabled="saving" @click="onSavePersona">{{ saving ? '保存中…' : '保存' }}</button>
-        </div>
-      </div>
-    </div>
 
     <ConflictDialog
       :show="conflictShow"

@@ -87,7 +87,7 @@ const newAgentSyncFiles = ref('')
 const newAgentExcludeFiles = ref('')
 
 const presetTemplates = [
-  { id: 'workbuddy', displayName: 'WorkBuddy', configDir: '~/.workbuddy', syncFiles: ['SOUL.md', 'IDENTITY.md', 'USER.md', 'memory/**'], excludeFiles: ['memory/cache/', 'memory/tmp/', '*.lock', '*.tmp', '*.log', '*.bak'] },
+  { id: 'workbuddy', displayName: 'WorkBuddy', configDir: '~/.workbuddy', syncFiles: ['SOUL.md', 'IDENTITY.md', 'USER.md', 'MEMORY.md', 'memory/**'], excludeFiles: ['memory/cache/', 'memory/tmp/', '*.lock', '*.tmp', '*.log', '*.bak'] },
   { id: 'claude-code', displayName: 'Claude Code', configDir: '~/.claude', syncFiles: ['CLAUDE.md', 'settings.json'], excludeFiles: ['*.log'] },
   { id: 'cursor', displayName: 'Cursor', configDir: '~/.cursor', syncFiles: ['rules/**'], excludeFiles: [] },
   { id: 'codex', displayName: 'Codex', configDir: '~/.codex', syncFiles: ['config.toml'], excludeFiles: ['*.sqlite', '*.sqlite-shm', '*.sqlite-wal', 'logs_*.sqlite', 'installation_id', 'tmp/', '.tmp/', 'sqlite/', 'vendor_imports/', 'skills/'] },
