@@ -54,6 +54,13 @@ jobs:
         working-directory: src-tauri
         run: cargo clippy --all-targets -- -D warnings
 
+      - name: Configure git identity for tests
+        # 测试用例通过 git2 的 repo.signature() 创建 commit，
+        # 需要全局 git user 配置，否则签名获取会失败
+        run: |
+          git config --global user.name "ci"
+          git config --global user.email "ci@example.com"
+
       - name: cargo test
         working-directory: src-tauri
         run: cargo test
