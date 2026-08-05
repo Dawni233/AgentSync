@@ -43,7 +43,7 @@ AgentSync uses a private Git repo as the backend, auto-syncs these config files 
 
 ### Download
 
-Grab the installer for your platform from [Releases](../../releases):
+Grab the installer for your platform from [Releases](https://github.com/Dawni233/AgentSync/releases):
 
 - **Windows**: `AgentSync-v{version}-windows-x64-setup.exe` (NSIS installer)
 - **macOS**: `AgentSync-v{version}-macos-{arch}.dmg`
@@ -175,11 +175,11 @@ Follows Semantic Versioning (SemVer). The single source of truth for the version
 
 ## Contributing
 
-Issues and Pull Requests are welcome. Before submitting a PR, please ensure:
+Issues and Pull Requests are welcome. Before submitting a PR, please read [CONTRIBUTING.md](./CONTRIBUTING.md) and ensure:
 
 1. `npm run typecheck` passes
 2. `cargo test` passes
-3. You follow the existing code style (see `AGENTS.md` for coding conventions)
+3. You follow the existing code style
 
 ## License
 

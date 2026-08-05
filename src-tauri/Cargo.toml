@@ -1,10 +1,16 @@
 [package]
 name = "agentsync"
-version = "0.1.0"
+version = "0.2.1"
 description = "AI Agent 配置同步工具"
 authors = ["Dawni"]
+license = "MIT"
 edition = "2021"
 rust-version = "1.77.2"
+repository = "https://github.com/Dawni233/AgentSync"
+homepage = "https://github.com/Dawni233/AgentSync"
+readme = "../README.md"
+categories = ["config"]
+keywords = ["tauri", "git", "sync", "ai-agent", "config"]
 
 [lib]
 name = "agentsync_lib"

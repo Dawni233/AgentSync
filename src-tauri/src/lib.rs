@@ -82,7 +82,10 @@ fn init_app(
         _ => types::Platform::Gitee,
     };
     settings.pat_token = pat_token.clone();
-    state.db.save_settings(&settings).map_err(|e| e.to_string())?;
+    state
+        .db
+        .save_settings(&settings)
+        .map_err(|e| e.to_string())?;
 
     let params = onboarding::InitAppParams {
         repo_url,
@@ -139,11 +142,9 @@ fn get_agents(state: tauri::State<'_, AppState>) -> Result<Vec<Agent>, String> {
         let current_dir = state.repo_path.join(&c.id).join("_current");
         let file_count = if current_dir.exists() {
             match file_mapper::build_matcher(&c.sync_files, &c.exclude_files) {
-                Ok((inc, exc)) => {
-                    file_mapper::list_syncable_files(&current_dir, &inc, &exc)
-                        .unwrap_or_default()
-                        .len() as u32
-                }
+                Ok((inc, exc)) => file_mapper::list_syncable_files(&current_dir, &inc, &exc)
+                    .unwrap_or_default()
+                    .len() as u32,
                 Err(_) => 0,
             }
         } else {
@@ -200,10 +201,10 @@ fn list_tracked_files(
         return Ok(vec![]);
     }
 
-    let (inc, exc) =
-        file_mapper::build_matcher(&config.sync_files, &config.exclude_files).map_err(|e| e.to_string())?;
-    let files = file_mapper::list_syncable_files(&current_dir, &inc, &exc)
+    let (inc, exc) = file_mapper::build_matcher(&config.sync_files, &config.exclude_files)
         .map_err(|e| e.to_string())?;
+    let files =
+        file_mapper::list_syncable_files(&current_dir, &inc, &exc).map_err(|e| e.to_string())?;
 
     let mut result = Vec::new();
     for rel in files {
@@ -228,10 +229,7 @@ fn list_tracked_files(
 /// async 执行：写 SQLite + 更新 registry.json + 创建 _current/ + 首次导入 + commit/push
 /// git 操作放后台线程，避免阻塞 UI
 #[tauri::command]
-async fn add_agent(
-    state: tauri::State<'_, AppState>,
-    config: AgentConfig,
-) -> Result<(), String> {
+async fn add_agent(state: tauri::State<'_, AppState>, config: AgentConfig) -> Result<(), String> {
     // 1. 写 SQLite（快速操作，直接执行）
     state.db.upsert_agent(&config).map_err(|e| e.to_string())?;
 
@@ -248,7 +246,11 @@ async fn add_agent(
     let sync_files = config.sync_files.clone();
     let exclude_files = config.exclude_files.clone();
     let agent_id = config.id.clone();
-    let pat = state.db.get_settings().map_err(|e| e.to_string())?.pat_token;
+    let pat = state
+        .db
+        .get_settings()
+        .map_err(|e| e.to_string())?
+        .pat_token;
 
     tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
         let current_dir = repo_path.join(&agent_id).join("_current");
@@ -269,8 +271,7 @@ async fn add_agent(
 
         // commit + push
         let repo = git2::Repository::open(&repo_path).map_err(|e| e.to_string())?;
-        git_sync::commit(&repo, &format!("add agent: {}", agent_id))
-            .map_err(|e| e.to_string())?;
+        git_sync::commit(&repo, &format!("add agent: {}", agent_id)).map_err(|e| e.to_string())?;
         let _ = git_sync::push(&repo, &pat);
 
         Ok(())
@@ -299,7 +300,11 @@ async fn remove_agent(state: tauri::State<'_, AppState>, agent_id: String) -> Re
 
     // 3. 删仓库目录 + commit/push（后台线程）
     let repo_path = state.repo_path.clone();
-    let pat = state.db.get_settings().map_err(|e| e.to_string())?.pat_token;
+    let pat = state
+        .db
+        .get_settings()
+        .map_err(|e| e.to_string())?
+        .pat_token;
     let id = agent_id.clone();
 
     tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
@@ -335,9 +340,8 @@ async fn sync_agent(
         .ok_or_else(|| format!("agent '{}' 未注册", agent_id))?;
 
     let settings = state.db.get_settings().map_err(|e| e.to_string())?;
-    let local_config_dir = PathBuf::from(
-        file_mapper::expand_tilde(&config.config_dir).map_err(|e| e.to_string())?,
-    );
+    let local_config_dir =
+        PathBuf::from(file_mapper::expand_tilde(&config.config_dir).map_err(|e| e.to_string())?);
 
     let _ = app.emit("sync:started", serde_json::json!({ "agentId": &agent_id }));
 
@@ -349,12 +353,14 @@ async fn sync_agent(
     let exclude_files = config.exclude_files.clone();
     let id = agent_id.clone();
 
-    let result = tauri::async_runtime::spawn_blocking(move || -> Result<(SyncResult, Option<SyncContext>), String> {
-        let engine = SyncEngine::new(repo_path, app_data_dir, pat);
-        engine
-            .sync_agent(&id, &local_config_dir, &sync_files, &exclude_files)
-            .map_err(|e| e.to_string())
-    })
+    let result = tauri::async_runtime::spawn_blocking(
+        move || -> Result<(SyncResult, Option<SyncContext>), String> {
+            let engine = SyncEngine::new(repo_path, app_data_dir, pat);
+            engine
+                .sync_agent(&id, &local_config_dir, &sync_files, &exclude_files)
+                .map_err(|e| e.to_string())
+        },
+    )
     .await
     .map_err(|e| format!("后台任务失败: {}", e))??;
 
@@ -362,10 +368,7 @@ async fn sync_agent(
 
     if sync_result.status == types::SyncResultStatus::Conflict {
         if let Some(ctx) = ctx {
-            *state
-                .pending_sync
-                .lock()
-                .map_err(|e| e.to_string())? = Some((agent_id.clone(), ctx));
+            *state.pending_sync.lock().map_err(|e| e.to_string())? = Some((agent_id.clone(), ctx));
             let _ = app.emit(
                 "conflict:detected",
                 serde_json::json!({
@@ -384,11 +387,12 @@ async fn sync_agent(
         );
         if sync_result.status == types::SyncResultStatus::Success {
             let now = chrono::Utc::now().timestamp_millis();
-            let _ = state.db.update_sync_status(&agent_id, &SyncStatus::Idle, Some(now));
+            let _ = state
+                .db
+                .update_sync_status(&agent_id, &SyncStatus::Idle, Some(now));
         }
     }
-    sync_engine::cleanup_tmp(&state.app_data_dir, &agent_id)
-        .map_err(|e| e.to_string())?;
+    sync_engine::cleanup_tmp(&state.app_data_dir, &agent_id).map_err(|e| e.to_string())?;
     Ok(sync_result)
 }
 
@@ -411,10 +415,7 @@ async fn sync_all(
         let local_config_dir = PathBuf::from(
             file_mapper::expand_tilde(&config.config_dir).map_err(|e| e.to_string())?,
         );
-        let _ = app.emit(
-            "sync:started",
-            serde_json::json!({ "agentId": &config.id }),
-        );
+        let _ = app.emit("sync:started", serde_json::json!({ "agentId": &config.id }));
 
         let repo_path = repo_path.clone();
         let app_data_dir = app_data_dir.clone();
@@ -423,12 +424,14 @@ async fn sync_all(
         let exclude_files = config.exclude_files.clone();
         let id = config.id.clone();
 
-        let sync_outcome = tauri::async_runtime::spawn_blocking(move || -> Result<(SyncResult, Option<SyncContext>), String> {
-            let engine = SyncEngine::new(repo_path, app_data_dir, pat);
-            engine
-                .sync_agent(&id, &local_config_dir, &sync_files, &exclude_files)
-                .map_err(|e| e.to_string())
-        })
+        let sync_outcome = tauri::async_runtime::spawn_blocking(
+            move || -> Result<(SyncResult, Option<SyncContext>), String> {
+                let engine = SyncEngine::new(repo_path, app_data_dir, pat);
+                engine
+                    .sync_agent(&id, &local_config_dir, &sync_files, &exclude_files)
+                    .map_err(|e| e.to_string())
+            },
+        )
         .await
         .map_err(|e| format!("后台任务失败: {}", e));
 
@@ -436,10 +439,8 @@ async fn sync_all(
             Ok(Ok((result, ctx))) => {
                 if result.status == types::SyncResultStatus::Conflict {
                     if let Some(ctx) = ctx {
-                        *state
-                            .pending_sync
-                            .lock()
-                            .map_err(|e| e.to_string())? = Some((config.id.clone(), ctx));
+                        *state.pending_sync.lock().map_err(|e| e.to_string())? =
+                            Some((config.id.clone(), ctx));
                     }
                     let _ = app.emit(
                         "conflict:detected",
@@ -452,15 +453,13 @@ async fn sync_all(
                         }),
                     );
                 } else {
-                    let _ = app.emit(
-                        "sync:completed",
-                        serde_json::json!({ "result": &result }),
-                    );
+                    let _ = app.emit("sync:completed", serde_json::json!({ "result": &result }));
                     if result.status == types::SyncResultStatus::Success {
                         let now = chrono::Utc::now().timestamp_millis();
-                        let _ = state
-                            .db
-                            .update_sync_status(&config.id, &SyncStatus::Idle, Some(now));
+                        let _ =
+                            state
+                                .db
+                                .update_sync_status(&config.id, &SyncStatus::Idle, Some(now));
                     }
                 }
                 sync_engine::cleanup_tmp(&state.app_data_dir, &config.id)
@@ -511,11 +510,7 @@ fn resolve_conflict(
 ) -> Result<SyncResult, String> {
     let resolution: ConflictResolution =
         serde_json::from_value(resolution).map_err(|e| format!("解析 resolution 失败: {}", e))?;
-    let pending = state
-        .pending_sync
-        .lock()
-        .map_err(|e| e.to_string())?
-        .take();
+    let pending = state.pending_sync.lock().map_err(|e| e.to_string())?.take();
     let (agent_id, ctx) = pending.ok_or_else(|| "没有待处理的冲突".to_string())?;
 
     let settings = state.db.get_settings().map_err(|e| e.to_string())?;
@@ -527,12 +522,8 @@ fn resolve_conflict(
 
     match engine.resolve_conflict(&ctx, &resolution) {
         Ok(result) => {
-            let _ = app.emit(
-                "sync:completed",
-                serde_json::json!({ "result": &result }),
-            );
-            sync_engine::cleanup_tmp(&state.app_data_dir, &agent_id)
-                .map_err(|e| e.to_string())?;
+            let _ = app.emit("sync:completed", serde_json::json!({ "result": &result }));
+            sync_engine::cleanup_tmp(&state.app_data_dir, &agent_id).map_err(|e| e.to_string())?;
             Ok(result)
         }
         Err(e) => {
@@ -551,7 +542,10 @@ fn resolve_conflict(
 
 /// 列出 agent 的所有人格
 #[tauri::command]
-fn list_personalities(state: tauri::State<'_, AppState>, agent_id: String) -> Result<Vec<Persona>, String> {
+fn list_personalities(
+    state: tauri::State<'_, AppState>,
+    agent_id: String,
+) -> Result<Vec<Persona>, String> {
     persona::list_personalities(&state.repo_path, &agent_id).map_err(|e| e.to_string())
 }
 
@@ -635,10 +629,11 @@ fn delete_personality(
     persona::delete_personality(&state.repo_path, &agent_id, &name, &settings.pat_token)
         .map_err(|e| e.to_string())?;
     // 删除的若是当前激活人格，清空 current_persona 避免残留指向
-    let (_, _, current_persona) = state
-        .db
-        .get_agent_status(&agent_id)
-        .unwrap_or(("idle".to_string(), None, None));
+    let (_, _, current_persona) =
+        state
+            .db
+            .get_agent_status(&agent_id)
+            .unwrap_or(("idle".to_string(), None, None));
     if current_persona.as_deref() == Some(name.as_str()) {
         state
             .db
@@ -656,8 +651,13 @@ fn export_personalities(
     names: Vec<String>,
     output_path: String,
 ) -> Result<String, String> {
-    persona::export_personalities(&state.repo_path, &agent_id, &names, std::path::Path::new(&output_path))
-        .map_err(|e| e.to_string())
+    persona::export_personalities(
+        &state.repo_path,
+        &agent_id,
+        &names,
+        std::path::Path::new(&output_path),
+    )
+    .map_err(|e| e.to_string())
 }
 
 /// 导入人格包 -- 预览 diff
@@ -698,7 +698,10 @@ fn import_personalities(
 
 /// 启动自动同步
 #[tauri::command]
-async fn start_auto_sync(state: tauri::State<'_, AppState>, app: tauri::AppHandle) -> Result<(), String> {
+async fn start_auto_sync(
+    state: tauri::State<'_, AppState>,
+    app: tauri::AppHandle,
+) -> Result<(), String> {
     let settings = state.db.get_settings().map_err(|e| e.to_string())?;
     state
         .auto_sync
@@ -774,7 +777,8 @@ pub fn run() {
 
             // 系统托盘（对应设计文档 Phase 5 -> 系统托盘）
             let quit = tauri::menu::MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
-            let sync_now = tauri::menu::MenuItem::with_id(app, "sync_now", "立即同步", true, None::<&str>)?;
+            let sync_now =
+                tauri::menu::MenuItem::with_id(app, "sync_now", "立即同步", true, None::<&str>)?;
             let menu = tauri::menu::Menu::with_items(app, &[&sync_now, &quit])?;
 
             tauri::tray::TrayIconBuilder::with_id("main-tray")
@@ -807,10 +811,12 @@ pub fn run() {
                 let _ = app_clone.listen("sync:started", {
                     let app = app_handle_for_tray.clone();
                     move |event| {
-                        let payload: serde_json::Value = serde_json::from_str(event.payload()).unwrap_or_default();
+                        let payload: serde_json::Value =
+                            serde_json::from_str(event.payload()).unwrap_or_default();
                         let agent_id = payload["agentId"].as_str().unwrap_or("");
                         if let Some(tray) = app.tray_by_id("main-tray") {
-                            let _ = tray.set_tooltip(Some(&format!("AgentSync - 同步中: {}", agent_id)));
+                            let _ = tray
+                                .set_tooltip(Some(&format!("AgentSync - 同步中: {}", agent_id)));
                         }
                     }
                 });

@@ -102,12 +102,18 @@ impl Registry {
             // 校验 glob 模式合法性
             for pattern in &entry.sync_files {
                 validate_glob(pattern).map_err(|e| {
-                    AppError::Registry(format!("agent '{}' 的 syncFiles 模式 '{}' 非法: {}", id, pattern, e))
+                    AppError::Registry(format!(
+                        "agent '{}' 的 syncFiles 模式 '{}' 非法: {}",
+                        id, pattern, e
+                    ))
                 })?;
             }
             for pattern in &entry.exclude_files {
                 validate_glob(pattern).map_err(|e| {
-                    AppError::Registry(format!("agent '{}' 的 excludeFiles 模式 '{}' 非法: {}", id, pattern, e))
+                    AppError::Registry(format!(
+                        "agent '{}' 的 excludeFiles 模式 '{}' 非法: {}",
+                        id, pattern, e
+                    ))
                 })?;
             }
         }
@@ -246,7 +252,13 @@ fn default_presets() -> Vec<AgentConfig> {
             display_name: "ZCode".into(),
             config_dir: "~/.zcode".into(),
             sync_files: vec!["AGENTS.md".into()],
-            exclude_files: vec!["cli/".into(), "plugin-workspace/".into(), "v2/".into(), "agents/".into(), "skills/".into()],
+            exclude_files: vec![
+                "cli/".into(),
+                "plugin-workspace/".into(),
+                "v2/".into(),
+                "agents/".into(),
+                "skills/".into(),
+            ],
             accent_color: Some("#8b5cf6".into()),
         },
         AgentConfig {
@@ -268,10 +280,7 @@ fn default_presets() -> Vec<AgentConfig> {
             display_name: "OpenClaw".into(),
             config_dir: "~/.openclaw".into(),
             sync_files: vec!["identity/**".into()],
-            exclude_files: vec![
-                "exec-approvals.json".into(),
-                "*.sock".into(),
-            ],
+            exclude_files: vec!["exec-approvals.json".into(), "*.sock".into()],
             accent_color: Some("#ef4444".into()),
         },
         AgentConfig {
@@ -314,7 +323,10 @@ mod tests {
         let registry: Registry = serde_json::from_str(json).unwrap();
         registry.validate().unwrap();
         assert_eq!(registry.agents.len(), 1);
-        assert_eq!(registry.get_agent("workbuddy").unwrap().display_name, "WorkBuddy");
+        assert_eq!(
+            registry.get_agent("workbuddy").unwrap().display_name,
+            "WorkBuddy"
+        );
     }
 
     #[test]

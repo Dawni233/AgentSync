@@ -361,7 +361,10 @@ mod tests {
         assert!(copied.contains(&"SOUL.md".to_string()));
         assert!(copied.contains(&"memory/chat.md".to_string()));
         assert!(!copied.contains(&"memory/cache/tmp.txt".to_string()));
-        assert_eq!(fs::read_to_string(current.path().join("SOUL.md")).unwrap(), "soul content");
+        assert_eq!(
+            fs::read_to_string(current.path().join("SOUL.md")).unwrap(),
+            "soul content"
+        );
     }
 
     #[test]
@@ -373,13 +376,8 @@ mod tests {
         write_file(current.path(), "SOUL.md", "old version");
         write_file(current.path(), "remote_only.md", "remote");
 
-        let (local_only, current_only, modified) = diff_dirs(
-            local.path(),
-            current.path(),
-            &["**".into()],
-            &[],
-        )
-        .unwrap();
+        let (local_only, current_only, modified) =
+            diff_dirs(local.path(), current.path(), &["**".into()], &[]).unwrap();
 
         assert!(local_only.contains(&"new.md".to_string()));
         assert!(current_only.contains(&"remote_only.md".to_string()));
@@ -400,6 +398,9 @@ mod tests {
         // 从快照恢复
         restore_snapshot(snapshot.path(), local.path()).unwrap();
 
-        assert_eq!(fs::read_to_string(local.path().join("SOUL.md")).unwrap(), "original");
+        assert_eq!(
+            fs::read_to_string(local.path().join("SOUL.md")).unwrap(),
+            "original"
+        );
     }
 }

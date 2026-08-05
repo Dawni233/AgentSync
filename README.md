@@ -43,7 +43,7 @@ AgentSync 用一个 Git 私有仓库作为后端，把这些配置文件自动�
 
 ### 下载安装
 
-前往 [Releases](../../releases) 下载对应平台的安装包：
+前往 [Releases](https://github.com/Dawni233/AgentSync/releases) 下载对应平台的安装包：
 
 - **Windows**: `AgentSync-v{版本号}-windows-x64-setup.exe`（NSIS 安装器）
 - **macOS**: `AgentSync-v{版本号}-macos-{架构}.dmg`
@@ -175,11 +175,11 @@ cd src-tauri && cargo test
 
 ## 贡献
 
-欢迎提 Issue 反馈 bug 或建议功能，也欢迎提 Pull Request。提 PR 前请确保：
+欢迎提 Issue 反馈 bug 或建议功能，也欢迎提 Pull Request。提 PR 前请阅读 [CONTRIBUTING.md](./CONTRIBUTING.md)，并确保：
 
 1. `npm run typecheck` 通过
 2. `cargo test` 通过
-3. 遵循现有代码风格（参考 `AGENTS.md` 中的编码规范）
+3. 遵循现有代码风格
 
 ## 许可证
 

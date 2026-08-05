@@ -37,3 +37,12 @@ design/
 
 # ZCode 本地会话数据
 .zcode/
+
+# 环境变量（防止 PAT / 密钥泄漏）
+.env
+.env.*
+!.env.example
+
+# 测试覆盖率
+coverage/
+*.tsbuildinfo

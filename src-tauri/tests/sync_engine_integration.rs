@@ -12,6 +12,8 @@ use std::fs;
 use tempfile::TempDir;
 
 /// 测试夹具：模拟两台设备共享同一远程仓库
+/// `remote_dir` 字段虽未被读取，但持有 TempDir 以维持生命周期到测试结束
+#[allow(dead_code)]
 struct TestEnv {
     remote_dir: TempDir,
     app_data_dir: TempDir,
@@ -32,11 +34,7 @@ impl TestEnv {
         let other_repo_dir = TempDir::new().unwrap();
 
         // 设备 A clone 空仓库
-        let repo = Repository::clone(
-            remote_dir.path().to_str().unwrap(),
-            &repo_path,
-        )
-        .unwrap();
+        let repo = Repository::clone(remote_dir.path().to_str().unwrap(), &repo_path).unwrap();
         repo.set_head("refs/heads/main").unwrap();
 
         // 初始 commit + push
@@ -49,11 +47,8 @@ impl TestEnv {
         git_sync::push(&repo, "fake_pat").unwrap();
 
         // 设备 B clone（模拟另一台设备）
-        let _other_repo = Repository::clone(
-            remote_dir.path().to_str().unwrap(),
-            other_repo_dir.path(),
-        )
-        .unwrap();
+        let _other_repo =
+            Repository::clone(remote_dir.path().to_str().unwrap(), other_repo_dir.path()).unwrap();
 
         TestEnv {
             remote_dir,
@@ -117,7 +112,12 @@ impl TestEnv {
             .reset(remote_commit.as_object(), git2::ResetType::Hard, None)
             .unwrap();
         // 修改文件 + commit + push
-        let other_path = self.other_repo_dir.path().join(agent_id).join("_current").join(rel);
+        let other_path = self
+            .other_repo_dir
+            .path()
+            .join(agent_id)
+            .join("_current")
+            .join(rel);
         if let Some(parent) = other_path.parent() {
             fs::create_dir_all(parent).unwrap();
         }
@@ -182,10 +182,8 @@ fn sync_local_changes_only() {
     assert!(result.pushed_files.contains(&"SOUL.md".to_string()));
     assert!(ctx.is_none());
 
-    let current_content = fs::read_to_string(
-        env.repo_path.join("workbuddy/_current/SOUL.md"),
-    )
-    .unwrap();
+    let current_content =
+        fs::read_to_string(env.repo_path.join("workbuddy/_current/SOUL.md")).unwrap();
     assert_eq!(current_content, "new content");
 }
 
@@ -212,8 +210,11 @@ fn sync_remote_changes_only() {
         .unwrap();
 
     assert_eq!(result.status, SyncResultStatus::Success);
-    assert!(result.pulled_files.contains(&"SOUL.md".to_string()),
-        "pulled_files should contain SOUL.md, got: {:?}", result.pulled_files);
+    assert!(
+        result.pulled_files.contains(&"SOUL.md".to_string()),
+        "pulled_files should contain SOUL.md, got: {:?}",
+        result.pulled_files
+    );
     assert_eq!(env.read_local_file("SOUL.md"), "v2 from remote");
 }
 
@@ -331,5 +332,8 @@ fn sync_excludes_lock_files() {
         .unwrap();
 
     assert_eq!(result.status, SyncResultStatus::Success);
-    assert!(!env.repo_path.join("workbuddy/_current/session.lock").exists());
+    assert!(!env
+        .repo_path
+        .join("workbuddy/_current/session.lock")
+        .exists());
 }

@@ -23,19 +23,15 @@ pub struct InitAppParams {
 /// 导入策略选项（用户可选）
 #[derive(serde::Serialize, serde::Deserialize, Clone, Copy)]
 #[serde(rename_all = "camelCase")]
+#[derive(Default)]
 pub enum ImportStrategyOption {
     /// 自动判断（_current 空用本地，本地空用远程，都有时默认本地）
+    #[default]
     Auto,
     /// 始终优先本地（本地覆盖远程）
     PreferLocal,
     /// 始终优先远程（远程覆盖本地）
     PreferRemote,
-}
-
-impl Default for ImportStrategyOption {
-    fn default() -> Self {
-        ImportStrategyOption::Auto
-    }
 }
 
 /// onboarding 结果
@@ -80,10 +76,7 @@ pub enum ImportStrategy {
 /// 3. bootstrap_registry（写默认 registry + 预置 agent）
 /// 4. 首次本地配置导入（4 场景）
 /// 5. commit + push
-pub fn init_app(
-    params: &InitAppParams,
-    app_data_dir: &Path,
-) -> AppResult<InitAppResult> {
+pub fn init_app(params: &InitAppParams, app_data_dir: &Path) -> AppResult<InitAppResult> {
     let repo_path = app_data_dir.join("repo");
 
     // 如果 repo 已存在，先清理（避免重复 onboarding 残留）

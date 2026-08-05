@@ -93,17 +93,20 @@ pub fn clone_repo(url: &str, local_path: &Path, pat: &str) -> AppResult<Reposito
 /// 5. 无冲突则 finish rebase
 pub fn pull_rebase(repo: &Repository, pat: &str) -> AppResult<PullOutcome> {
     // 从 origin URL 解析用户名
-    let url = repo
-        .find_remote("origin")?
-        .url()
-        .unwrap_or("")
-        .to_string();
+    let url = repo.find_remote("origin")?.url().unwrap_or("").to_string();
     let username = extract_username_from_url(&url);
 
     // 1. fetch 远程
     let mut remote = repo.find_remote("origin")?;
-    let refspec = format!("refs/heads/{}:refs/remotes/origin/{}", DEFAULT_BRANCH, DEFAULT_BRANCH);
-    remote.fetch(&[&refspec], Some(&mut make_fetch_options(&username, pat)), None)?;
+    let refspec = format!(
+        "refs/heads/{}:refs/remotes/origin/{}",
+        DEFAULT_BRANCH, DEFAULT_BRANCH
+    );
+    remote.fetch(
+        &[&refspec],
+        Some(&mut make_fetch_options(&username, pat)),
+        None,
+    )?;
 
     // 2. 拿到远程 HEAD oid
     let remote_ref_name = format!("refs/remotes/origin/{}", DEFAULT_BRANCH);
@@ -218,26 +221,12 @@ pub fn commit(repo: &Repository, message: &str) -> AppResult<bool> {
                 return Ok(false);
             }
             let sig = repo.signature()?;
-            repo.commit(
-                Some("HEAD"),
-                &sig,
-                &sig,
-                message,
-                &tree,
-                &[&parent],
-            )?;
+            repo.commit(Some("HEAD"), &sig, &sig, message, &tree, &[&parent])?;
         }
         Err(e) if e.code() == git2::ErrorCode::UnbornBranch => {
             // 空仓库首次 commit，无 parent
             let sig = repo.signature()?;
-            repo.commit(
-                Some("HEAD"),
-                &sig,
-                &sig,
-                message,
-                &tree,
-                &[],
-            )?;
+            repo.commit(Some("HEAD"), &sig, &sig, message, &tree, &[])?;
         }
         Err(e) => return Err(e.into()),
     }
@@ -246,18 +235,17 @@ pub fn commit(repo: &Repository, message: &str) -> AppResult<bool> {
 
 /// push 到远程 main 分支
 pub fn push(repo: &Repository, pat: &str) -> AppResult<()> {
-    let url = repo
-        .find_remote("origin")?
-        .url()
-        .unwrap_or("")
-        .to_string();
+    let url = repo.find_remote("origin")?.url().unwrap_or("").to_string();
     let username = extract_username_from_url(&url);
     let mut remote = repo.find_remote("origin")?;
     let push_refspec = format!(
         "refs/heads/{}:refs/heads/{}",
         DEFAULT_BRANCH, DEFAULT_BRANCH
     );
-    remote.push(&[&push_refspec], Some(&mut make_push_options(&username, pat)))?;
+    remote.push(
+        &[&push_refspec],
+        Some(&mut make_push_options(&username, pat)),
+    )?;
     Ok(())
 }
 
@@ -322,11 +310,8 @@ mod tests {
         let _remote = Repository::init_bare(remote_dir.path()).unwrap();
 
         let local_dir = TempDir::new().unwrap();
-        let repo = Repository::clone(
-            remote_dir.path().to_str().unwrap(),
-            local_dir.path(),
-        )
-        .unwrap();
+        let repo =
+            Repository::clone(remote_dir.path().to_str().unwrap(), local_dir.path()).unwrap();
 
         // 初始 commit（让 main 分支存在）
         let sig = repo.signature().unwrap();
@@ -340,7 +325,8 @@ mod tests {
         };
         {
             let tree = repo.find_tree(tree_oid).unwrap();
-            repo.commit(Some("HEAD"), &sig, &sig, "init", &tree, &[]).unwrap();
+            repo.commit(Some("HEAD"), &sig, &sig, "init", &tree, &[])
+                .unwrap();
         }
 
         // clone 已自动配置 origin 远程，无需重复添加
@@ -384,7 +370,10 @@ mod tests {
         let mut remote = repo.find_remote("origin").unwrap();
         remote
             .push(
-                &[&format!("refs/heads/{}:refs/heads/{}", DEFAULT_BRANCH, DEFAULT_BRANCH)],
+                &[&format!(
+                    "refs/heads/{}:refs/heads/{}",
+                    DEFAULT_BRANCH, DEFAULT_BRANCH
+                )],
                 None,
             )
             .unwrap();

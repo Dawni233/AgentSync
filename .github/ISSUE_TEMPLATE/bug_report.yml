@@ -1,0 +1,62 @@
+name: Bug 报告
+description: 报告一个可复现的问题
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢反馈！请先搜索现有 Issue，避免重复提交。
+        如果是安全漏洞，请按 [SECURITY.md](../SECURITY.md) 私下上报，**不要**在此公开。
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: 问题描述
+      description: 简要说明发生了什么问题，以及你期望的行为是什么
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: 复现步骤
+      description: 最小化复现路径
+      placeholder: |
+        1. 启动应用
+        2. 进入 '...'
+        3. 点击 '...'
+        4. 看到 ...
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: AgentSync 版本
+      placeholder: "0.2.1"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: 操作系统
+      options:
+        - Windows
+        - macOS
+        - Linux
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: 日志 / 截图
+      description: 相关日志输出或截图（注意脱敏，不要贴出 PAT 或仓库地址）
+      render: shell
+
+  - type: textarea
+    id: agent
+    attributes:
+      label: 涉及的 Agent（如适用）
+      placeholder: "如 Claude Code / Cursor / Codex ..."

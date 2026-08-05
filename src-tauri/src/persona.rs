@@ -126,21 +126,13 @@ pub fn read_persona_file(
 /// 1. 输入人格名称
 /// 2. 拷贝 _current/ -> 新人格文件夹
 /// 3. git commit + push
-pub fn save_personality(
-    repo_path: &Path,
-    agent_id: &str,
-    name: &str,
-    pat: &str,
-) -> AppResult<()> {
+pub fn save_personality(repo_path: &Path, agent_id: &str, name: &str, pat: &str) -> AppResult<()> {
     let agent_dir = repo_path.join(agent_id);
     let current_dir = agent_dir.join("_current");
     let persona_dir = agent_dir.join(name);
 
     if persona_dir.exists() {
-        return Err(AppError::Config(format!(
-            "人格 '{}' 已存在",
-            name
-        )));
+        return Err(AppError::Config(format!("人格 '{}' 已存在", name)));
     }
     if !current_dir.exists() {
         return Err(AppError::Config(format!(
@@ -169,6 +161,7 @@ pub fn save_personality(
 /// 3. git add _current/ && commit
 ///
 /// 原子操作：先写临时目录，成功后 rename，失败回滚
+#[allow(clippy::too_many_arguments)]
 pub fn switch_personality(
     repo_path: &Path,
     app_data_dir: &Path,
@@ -185,10 +178,7 @@ pub fn switch_personality(
     let local_config_dir = PathBuf::from(file_mapper::expand_tilde(config_dir)?);
 
     if !persona_dir.exists() {
-        return Err(AppError::Config(format!(
-            "人格 '{}' 不存在",
-            name
-        )));
+        return Err(AppError::Config(format!("人格 '{}' 不存在", name)));
     }
 
     // 切换前快照（用于失败回滚 + 撤销）
@@ -266,7 +256,12 @@ pub fn switch_personality(
 }
 
 /// 3. 删除人格
-pub fn delete_personality(repo_path: &Path, agent_id: &str, name: &str, pat: &str) -> AppResult<()> {
+pub fn delete_personality(
+    repo_path: &Path,
+    agent_id: &str,
+    name: &str,
+    pat: &str,
+) -> AppResult<()> {
     let persona_dir = repo_path.join(agent_id).join(name);
     if !persona_dir.exists() {
         return Err(AppError::Config(format!("人格 '{}' 不存在", name)));
@@ -294,8 +289,8 @@ pub fn export_personalities(
 ) -> AppResult<String> {
     let file = fs::File::create(output_path)?;
     let mut zip = zip::ZipWriter::new(file);
-    let options =
-        zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
+    let options = zip::write::SimpleFileOptions::default()
+        .compression_method(zip::CompressionMethod::Deflated);
 
     // 写 manifest.json
     let manifest = serde_json::json!({
@@ -370,7 +365,8 @@ pub fn preview_import_personalities(
 
     // 先把所有 zip 内文件读到内存（避免借用冲突）
     // key: "persona_name/relative_path" -> content
-    let mut zip_files: std::collections::HashMap<String, Vec<u8>> = std::collections::HashMap::new();
+    let mut zip_files: std::collections::HashMap<String, Vec<u8>> =
+        std::collections::HashMap::new();
     for i in 1..archive.len() {
         let mut entry = archive.by_index(i)?;
         let entry_name = entry.name().to_string();
@@ -384,7 +380,10 @@ pub fn preview_import_personalities(
 
     // 逐人格对比
     let mut previews = Vec::new();
-    let personalities = manifest["personalities"].as_array().cloned().unwrap_or_default();
+    let personalities = manifest["personalities"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
     for p in personalities {
         let name = p["name"].as_str().unwrap_or("").to_string();
         let persona_dir = repo_path.join(agent_id).join(&name);
@@ -407,10 +406,7 @@ pub fn preview_import_personalities(
                     "modified".to_string()
                 }
             };
-            files_diff.push(FileDiff {
-                path: rel,
-                action,
-            });
+            files_diff.push(FileDiff { path: rel, action });
         }
 
         files_diff.sort_by(|a, b| a.path.cmp(&b.path));
@@ -563,19 +559,17 @@ mod tests {
         // 仓库结构: repo/test-agent/work-mode/SOUL.md
         let persona_dir = repo.path().join("test-agent").join("work-mode");
         std::fs::create_dir_all(&persona_dir).unwrap();
-        write_file(repo.path(), "test-agent/work-mode/SOUL.md", "persona version");
+        write_file(
+            repo.path(),
+            "test-agent/work-mode/SOUL.md",
+            "persona version",
+        );
 
         // 本地结构: local/SOUL.md
         write_file(local.path(), "SOUL.md", "local version");
 
         let config = make_config(local.path().to_str().unwrap());
-        let result = read_persona_file(
-            repo.path(),
-            &config,
-            "work-mode",
-            "SOUL.md",
-        )
-        .unwrap();
+        let result = read_persona_file(repo.path(), &config, "work-mode", "SOUL.md").unwrap();
 
         assert!(!result.is_binary);
         assert_eq!(result.persona_content.as_deref(), Some("persona version"));
@@ -588,16 +582,14 @@ mod tests {
         let local = TempDir::new().unwrap();
         let persona_dir = repo.path().join("test-agent").join("work-mode");
         std::fs::create_dir_all(&persona_dir).unwrap();
-        write_file(repo.path(), "test-agent/work-mode/SOUL.md", "only in persona");
+        write_file(
+            repo.path(),
+            "test-agent/work-mode/SOUL.md",
+            "only in persona",
+        );
 
         let config = make_config(local.path().to_str().unwrap());
-        let result = read_persona_file(
-            repo.path(),
-            &config,
-            "work-mode",
-            "SOUL.md",
-        )
-        .unwrap();
+        let result = read_persona_file(repo.path(), &config, "work-mode", "SOUL.md").unwrap();
 
         assert!(!result.is_binary);
         assert_eq!(result.persona_content.as_deref(), Some("only in persona"));
@@ -618,13 +610,7 @@ mod tests {
         .unwrap();
 
         let config = make_config(local.path().to_str().unwrap());
-        let result = read_persona_file(
-            repo.path(),
-            &config,
-            "work-mode",
-            "blob.bin",
-        )
-        .unwrap();
+        let result = read_persona_file(repo.path(), &config, "work-mode", "blob.bin").unwrap();
 
         assert!(result.is_binary);
         assert_eq!(result.persona_content, None);
@@ -637,12 +623,7 @@ mod tests {
         let local = TempDir::new().unwrap();
         let config = make_config(local.path().to_str().unwrap());
 
-        let result = read_persona_file(
-            repo.path(),
-            &config,
-            "work-mode",
-            "../../../etc/passwd",
-        );
+        let result = read_persona_file(repo.path(), &config, "work-mode", "../../../etc/passwd");
 
         assert!(result.is_err());
     }
@@ -653,12 +634,8 @@ mod tests {
         let local = TempDir::new().unwrap();
         let config = make_config(local.path().to_str().unwrap());
 
-        let result = read_persona_file(
-            repo.path(),
-            &config,
-            "work-mode",
-            "..\\..\\..\\etc\\passwd",
-        );
+        let result =
+            read_persona_file(repo.path(), &config, "work-mode", "..\\..\\..\\etc\\passwd");
 
         assert!(result.is_err());
     }
@@ -673,13 +650,7 @@ mod tests {
         write_file(local.path(), "SOUL.md", "local only");
 
         let config = make_config(local.path().to_str().unwrap());
-        let result = read_persona_file(
-            repo.path(),
-            &config,
-            "work-mode",
-            "SOUL.md",
-        )
-        .unwrap();
+        let result = read_persona_file(repo.path(), &config, "work-mode", "SOUL.md").unwrap();
 
         assert!(!result.is_binary);
         assert_eq!(result.persona_content, None);

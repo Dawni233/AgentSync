@@ -143,9 +143,7 @@ impl Database {
         );
         match result {
             Ok(s) => Ok(s),
-            Err(rusqlite::Error::QueryReturnedNoRows) => {
-                Ok(("idle".to_string(), None, None))
-            }
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(("idle".to_string(), None, None)),
             Err(e) => Err(e.into()),
         }
     }
@@ -198,11 +196,7 @@ impl Database {
     }
 
     /// 更新 agent 当前激活的人格（切换/删除人格时调用）
-    pub fn update_current_persona(
-        &self,
-        agent_id: &str,
-        persona: Option<&str>,
-    ) -> AppResult<()> {
+    pub fn update_current_persona(&self, agent_id: &str, persona: Option<&str>) -> AppResult<()> {
         let conn = self.conn.lock().map_err(|e| AppError::Db(e.to_string()))?;
         conn.execute(
             "UPDATE agent_cache SET current_persona = ? WHERE id = ?",

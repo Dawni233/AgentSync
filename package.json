@@ -1,9 +1,32 @@
 {
   "name": "agentsync",
   "version": "0.2.1",
+  "description": "跨设备的 AI 助手配置同步工具 -- 把 Claude Code / Cursor / Codex / ZCode 等配置统一同步到 Git 私有仓库",
   "license": "MIT",
+  "author": "Dawni",
   "private": true,
   "type": "module",
+  "homepage": "https://github.com/Dawni233/AgentSync",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Dawni233/AgentSync.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Dawni233/AgentSync/issues"
+  },
+  "keywords": [
+    "tauri",
+    "ai-agent",
+    "sync",
+    "claude-code",
+    "cursor",
+    "codex",
+    "config-sync",
+    "git"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
   "scripts": {
     "dev": "vite",
     "build": "vue-tsc --noEmit && vite build",

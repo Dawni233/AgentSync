@@ -98,12 +98,7 @@ impl SyncEngine {
             .join(format!("{}_{}", agent_id, timestamp));
 
         // S0：创建本地快照（L2 agent 级原子性回滚用）
-        file_mapper::create_snapshot(
-            local_config_dir,
-            &snapshot_dir,
-            sync_files,
-            exclude_files,
-        )?;
+        file_mapper::create_snapshot(local_config_dir, &snapshot_dir, sync_files, exclude_files)?;
 
         let repo = git2::Repository::open(&self.repo_path)?;
 
@@ -177,7 +172,7 @@ impl SyncEngine {
                 current_only,
                 modified,
             };
-            return Ok((
+            Ok((
                 SyncResult {
                     agent_id: agent_id.to_string(),
                     status: SyncResultStatus::Conflict,
@@ -188,25 +183,22 @@ impl SyncEngine {
                     duration_ms: start.elapsed().as_millis() as u64,
                 },
                 Some(ctx),
-            ));
+            ))
         } else if !local_has_changes && !remote_has_new {
             // 本地无变更 & 远程无新内容
             if git_sync::has_unpushed_commits(&repo)? {
                 // S2 -> S6：有未推送 commit（切换 commit 等场景）
-                let (committed, pushed) = git_sync::commit_and_push(
-                    &repo,
-                    &self.pat,
-                    &format!("sync: {}", agent_id),
-                )?;
+                let (committed, pushed) =
+                    git_sync::commit_and_push(&repo, &self.pat, &format!("sync: {}", agent_id))?;
                 let _ = file_mapper::remove_snapshot(&snapshot_dir);
-                return Ok((
+                Ok((
                     self.build_result(agent_id, vec![], vec![], committed, pushed, start),
                     None,
-                ));
+                ))
             } else {
                 // S2 -> S_END：真无变化
                 let _ = file_mapper::remove_snapshot(&snapshot_dir);
-                return Ok((
+                Ok((
                     SyncResult {
                         agent_id: agent_id.to_string(),
                         status: SyncResultStatus::Success,
@@ -217,11 +209,11 @@ impl SyncEngine {
                         duration_ms: start.elapsed().as_millis() as u64,
                     },
                     None,
-                ));
+                ))
             }
         } else if !local_has_changes && remote_has_new {
             // S2 -> S5：仅远程有新内容，写回本地
-            return self.run_s5(
+            self.run_s5(
                 agent_id,
                 &current_dir,
                 local_config_dir,
@@ -231,11 +223,11 @@ impl SyncEngine {
                 exclude_files,
                 &repo,
                 start,
-            );
+            )
         } else {
             // local_has_changes && !remote_has_new
             // S2 -> S4：合并本地变更到 _current/
-            return self.run_s4_then_s6(
+            self.run_s4_then_s6(
                 agent_id,
                 local_config_dir,
                 &current_dir,
@@ -244,11 +236,12 @@ impl SyncEngine {
                 exclude_files,
                 &repo,
                 start,
-            );
+            )
         }
     }
 
     /// S4：合并本地变更到 `_current/`，然后 S6
+    #[allow(clippy::too_many_arguments)]
     fn run_s4_then_s6(
         &self,
         agent_id: &str,
@@ -302,6 +295,7 @@ impl SyncEngine {
     }
 
     /// S5：仓库 `_current/` -> 本地配置目录（原子写入），然后 S6
+    #[allow(clippy::too_many_arguments)]
     fn run_s5(
         &self,
         agent_id: &str,
@@ -372,9 +366,11 @@ impl SyncEngine {
         match resolution {
             ConflictResolution::L1ExportPatch => {
                 // S1a -> S_END：导出 patch
-                let patch_path = self
-                    .app_data_dir
-                    .join(format!("patches/{}_{}.patch", ctx.agent_id, chrono::Utc::now().timestamp_millis()));
+                let patch_path = self.app_data_dir.join(format!(
+                    "patches/{}_{}.patch",
+                    ctx.agent_id,
+                    chrono::Utc::now().timestamp_millis()
+                ));
                 self.export_patch(&repo, &patch_path)?;
                 let _ = file_mapper::remove_snapshot(&ctx.snapshot_dir);
                 Ok(SyncResult {
@@ -390,17 +386,11 @@ impl SyncEngine {
             ConflictResolution::L1DiscardLocal => {
                 // S1a -> S2：abort rebase + reset 到远程 HEAD
                 git_sync::abort_rebase(&repo)?;
-                let remote_ref = repo.find_reference(&format!(
-                    "refs/remotes/origin/{}",
-                    git_sync::DEFAULT_BRANCH
-                ))?;
+                let remote_ref = repo
+                    .find_reference(&format!("refs/remotes/origin/{}", git_sync::DEFAULT_BRANCH))?;
                 let remote_oid = remote_ref.target().unwrap();
                 let remote_commit = repo.find_commit(remote_oid)?;
-                repo.reset(
-                    remote_commit.as_object(),
-                    git2::ResetType::Hard,
-                    None,
-                )?;
+                repo.reset(remote_commit.as_object(), git2::ResetType::Hard, None)?;
                 // 继续走 S2 流程（这里简化为重新 sync_agent）
                 let (result, _) = self.sync_agent(
                     &ctx.agent_id,
@@ -488,21 +478,15 @@ impl SyncEngine {
         if let Some(parent) = patch_path.parent() {
             std::fs::create_dir_all(parent)?;
         }
-        let remote_ref = repo.find_reference(&format!(
-            "refs/remotes/origin/{}",
-            git_sync::DEFAULT_BRANCH
-        ))?;
+        let remote_ref =
+            repo.find_reference(&format!("refs/remotes/origin/{}", git_sync::DEFAULT_BRANCH))?;
         let remote_oid = remote_ref.target().unwrap();
         let remote_commit = repo.find_annotated_commit(remote_oid)?;
         let head = repo.head()?.peel_to_commit()?;
 
         let remote_tree = repo.find_commit(remote_commit.id())?.tree()?;
         let head_tree = head.tree()?;
-        let diff = repo.diff_tree_to_tree(
-            Some(&remote_tree),
-            Some(&head_tree),
-            None,
-        )?;
+        let diff = repo.diff_tree_to_tree(Some(&remote_tree), Some(&head_tree), None)?;
         let mut file = std::fs::File::create(patch_path)?;
         diff.print(git2::DiffFormat::Patch, |_delta, _hunk, line| {
             use std::io::Write;
